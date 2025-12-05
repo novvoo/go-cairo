@@ -280,6 +280,33 @@ type TextCluster struct {
 	NumGlyphs int
 }
 
+// PathDataType represents cairo_path_data_type_t - path segment types
+type PathDataType int
+
+const (
+	PathMoveTo PathDataType = iota
+	PathLineTo
+	PathCurveTo
+	PathClosePath
+)
+
+// PathData represents cairo_path_data_t - path segment data
+type PathData struct {
+	Type PathDataType
+	Points []Point
+}
+
+// Path represents cairo_path_t - path data structure
+type Path struct {
+	Status Status
+	Data []PathData
+}
+
+// Point represents a point in the path
+type Point struct {
+	X, Y float64
+}
+
 // TextClusterFlags represents cairo_text_cluster_flags_t - cluster flags
 type TextClusterFlags int
 

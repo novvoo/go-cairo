@@ -4,7 +4,22 @@ import (
 	"math"
 	"sync/atomic"
 	"unsafe"
+	
+	"github.com/go-text/typesetting/font"
+	"github.com/go-text/typesetting/shaping"
+	"golang.org/x/image/math/fixed"
 )
+
+var defaultFont font.Face
+
+func init() {
+	if len(defaultFontData) > 0 {
+		f, err := font.ParseTTF(defaultFontData)
+		if err == nil {
+			defaultFont = f
+		}
+	}
+}
 
 // ---------------- Font options (cairo_font_options_t) ----------------
 
@@ -282,6 +297,9 @@ type toyFontFace struct {
 	family string
 	slant  FontSlant
 	weight FontWeight
+	
+	// Real font face from go-text/typesetting
+	realFace font.Face
 }
 
 // NewToyFontFace creates a toy font face similar to cairo_toy_font_face_create.
@@ -296,6 +314,10 @@ func NewToyFontFace(family string, slant FontSlant, weight FontWeight) FontFace 
 		family: family,
 		slant:  slant,
 		weight: weight,
+		realFace: defaultFont, // Use the loaded default font
+	}
+	if ff.realFace == nil {
+		ff.status = StatusFontTypeMismatch // A better error might be needed
 	}
 	return ff
 }
@@ -464,8 +486,61 @@ func (s *scaledFont) GetFontOptions() *FontOptions {
 	return s.options.Copy()
 }
 
-// toyFontSize derives an approximate font size from the font matrix.
-func (s *scaledFont) toyFontSize() float64 {
+// getRealFace returns the underlying font.Face and checks for errors.
+func (s *scaledFont) getRealFace() (font.Face, Status) {
+	if s.fontFace == nil {
+		return nil, StatusNullPointer
+	}
+	toy, ok := s.fontFace.(*toyFontFace)
+	if !ok || toy.realFace == nil {
+		return nil, StatusFontTypeMismatch
+	}
+	return toy.realFace, StatusSuccess
+}
+
+// Extents returns font extents using the real font face.
+func (s *scaledFont) Extents() *FontExtents {
+	fe := &FontExtents{}
+	
+	realFace, status := s.getRealFace()
+	if status != StatusSuccess {
+		// Fallback to toy extents if real face is not available
+		return s.toyExtentsFallback()
+	}
+
+	// Get font metrics from go-text/typesetting
+	// The font matrix defines the scale and transformation.
+	// We need to calculate the point size from the font matrix.
+	// Cairo's font matrix is typically a scale matrix (size in user space units).
+	// We'll use the average of the scale factors as the nominal size.
+	
+	// Scale factor from font matrix
+	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	
+	// Font metrics are in font units (FUnits). We need to convert them to user space units.
+	// FUnits to user space: FUnits * (scale / unitsPerEm)
+	unitsPerEm := float64(realFace.UnitsPerEm())
+	
+	// Ascent, Descent, Height in FUnits
+	ascentFUnits := float64(realFace.Ascender())
+	descentFUnits := float64(realFace.Descender())
+	lineGapFUnits := float64(realFace.LineGap())
+	
+	// Convert to user space units
+	fe.Ascent = ascentFUnits * sx / unitsPerEm
+	fe.Descent = -descentFUnits * sy / unitsPerEm // Descent is negative in FUnits, cairo expects positive
+	fe.Height = fe.Ascent + fe.Descent + lineGapFUnits * sy / unitsPerEm
+	
+	// Max advance is a guess without shaping a string
+	fe.MaxXAdvance = sx
+	fe.MaxYAdvance = 0
+	
+	return fe
+}
+
+// toyExtentsFallback returns toy font extents based on the derived font size.
+func (s *scaledFont) toyExtentsFallback() *FontExtents {
 	// Use average of xx and yy scale as size; fall back to 12 if zero.
 	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
 	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
@@ -473,12 +548,6 @@ func (s *scaledFont) toyFontSize() float64 {
 	if size == 0 {
 		size = 12
 	}
-	return size
-}
-
-// Extents returns toy font extents based on the derived font size.
-func (s *scaledFont) Extents() *FontExtents {
-	size := s.toyFontSize()
 	fe := &FontExtents{}
 	fe.Ascent = size * 0.8
 	fe.Descent = size * 0.2
@@ -488,9 +557,52 @@ func (s *scaledFont) Extents() *FontExtents {
 	return fe
 }
 
-// TextExtents computes naive text extents assuming fixed advance width.
+// TextExtents computes text extents using the real font face and shaping.
 func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
-	size := s.toyFontSize()
+	ext := &TextExtents{}
+	
+	realFace, status := s.getRealFace()
+	if status != StatusSuccess {
+		return s.toyTextExtentsFallback(utf8)
+	}
+
+	// 1. Shape the text
+	shaper := shaping.NewShaper(realFace)
+	output := shaper.Shape(utf8)
+	
+	// 2. Calculate extents from shaped output
+	// We need to convert fixed.Int26_6 to float64 (divide by 64)
+	
+	// Bounding box in FUnits
+	bbox := output.Bounds()
+	
+	// Scale factor from font matrix
+	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	unitsPerEm := float64(realFace.UnitsPerEm())
+	
+	// Convert FUnits to user space units
+	funitToUser := func(f fixed.Int26_6, scale float64) float64 {
+		return float64(f.Round()) * scale / unitsPerEm
+	}
+	
+	// Extents
+	ext.XBearing = funitToUser(bbox.Min.X, sx)
+	ext.YBearing = funitToUser(bbox.Min.Y, sy)
+	ext.Width = funitToUser(bbox.Dx(), sx)
+	ext.Height = funitToUser(bbox.Dy(), sy)
+	
+	// Advance
+	lastGlyph := output.Glyphs[len(output.Glyphs)-1]
+	ext.XAdvance = float64(lastGlyph.XAdvance) * sx / unitsPerEm
+	ext.YAdvance = float64(lastGlyph.YAdvance) * sy / unitsPerEm
+	
+	return ext
+}
+
+// toyTextExtentsFallback computes naive text extents assuming fixed advance width.
+func (s *scaledFont) toyTextExtentsFallback(utf8 string) *TextExtents {
+	size := s.toyExtentsFallback().Ascent + s.toyExtentsFallback().Descent
 	advancePerRune := size * 0.6
 
 	var runeCount int
@@ -500,11 +612,11 @@ func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
 
 	ext := &TextExtents{}
 	ext.Width = float64(runeCount) * advancePerRune
-	ext.Height = s.Extents().Height
+	ext.Height = s.toyExtentsFallback().Height
 	ext.XAdvance = ext.Width
 	ext.YAdvance = 0
 	ext.XBearing = 0
-	ext.YBearing = -s.Extents().Ascent
+	ext.YBearing = -s.toyExtentsFallback().Ascent
 	return ext
 }
 
@@ -525,11 +637,60 @@ func (s *scaledFont) GlyphExtents(glyphs []Glyph) *TextExtents {
 	return ext
 }
 
-// TextToGlyphs performs a trivial Unicode->glyph mapping similar to
-// cairo_scaled_font_text_to_glyphs but without complex shaping.
+// TextToGlyphs performs text shaping to get accurate glyphs and clusters.
 func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status) {
+	realFace, status := s.getRealFace()
+	if status != StatusSuccess {
+		return s.toyTextToGlyphsFallback(x, y, utf8)
+	}
+	
+	// 1. Shape the text
+	shaper := shaping.NewShaper(realFace)
+	output := shaper.Shape(utf8)
+	
+	// 2. Convert shaped output to cairo's Glyph and TextCluster structures
+	
+	// Scale factor from font matrix
+	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	unitsPerEm := float64(realFace.UnitsPerEm())
+	
+	// FUnits to user space: FUnits * (scale / unitsPerEm)
+	funitToUser := func(f float64, scale float64) float64 {
+		return f * scale / unitsPerEm
+	}
+	
+	// Glyphs
+	glyphs = make([]Glyph, len(output.Glyphs))
+	for i, g := range output.Glyphs {
+		// Position is in user space, relative to the start point (x, y)
+		glyphs[i] = Glyph{
+			Index: uint64(g.ID),
+			X:     x + funitToUser(float64(g.XOffset), sx) + funitToUser(float64(g.X), sx),
+			Y:     y - funitToUser(float64(g.YOffset), sy) - funitToUser(float64(g.Y), sy), // Y is inverted in cairo
+		}
+	}
+	
+	// Clusters
+	clusters = make([]TextCluster, len(output.Clusters))
+	for i, c := range output.Clusters {
+		clusters[i] = TextCluster{
+			NumBytes:  int(c.NumBytes),
+			NumGlyphs: int(c.NumGlyphs),
+		}
+	}
+	
+	// Cluster flags (simplified)
+	clusterFlags = 0
+	
+	return glyphs, clusters, clusterFlags, StatusSuccess
+}
+
+// toyTextToGlyphsFallback performs a trivial Unicode->glyph mapping similar to
+// cairo_scaled_font_text_to_glyphs but without complex shaping.
+func (s *scaledFont) toyTextToGlyphsFallback(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status) {
 	// Simple left-to-right mapping: one glyph per rune.
-	size := s.toyFontSize()
+	size := s.toyExtentsFallback().Ascent + s.toyExtentsFallback().Descent
 	advancePerRune := size * 0.6
 
 	glyphs = make([]Glyph, 0, len(utf8))

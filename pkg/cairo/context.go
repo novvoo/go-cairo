@@ -4,7 +4,20 @@ import (
 	"math"
 	"sync/atomic"
 	"unsafe"
-)
+	
+	"image/draw"
+		"github.com/llgcode/draw2d"
+		"github.com/llgcode/draw2d/draw2dimg"
+		"github.com/llgcode/draw2d/draw2dpdf"
+		"github.com/llgcode/draw2d/draw2dsvg"
+	)
+
+// GroupSurface is a temporary surface used for group operations.
+type GroupSurface struct {
+	Surface
+	originalTarget Surface
+	originalGC draw2d.GraphicContext
+}
 
 // context implements the Context interface
 type context struct {
@@ -26,12 +39,15 @@ type context struct {
 	// Path
 	path *path
 
-	// Current point
-	currentPoint struct {
-		x, y     float64
-		hasPoint bool
+		// Current point
+		currentPoint struct {
+			x, y     float64
+			hasPoint bool
+		}
+		
+		// Drawing context for backend
+		gc draw2d.GraphicContext
 	}
-}
 
 // graphicsState represents the graphics state that can be saved/restored
 type graphicsState struct {
@@ -64,6 +80,9 @@ type graphicsState struct {
 
 	// Previous state in stack
 	next *graphicsState
+	
+	// Group surface reference for PopGroup
+	groupSurface *GroupSurface
 }
 
 // clipRegion represents clipping information
@@ -103,13 +122,36 @@ func NewContext(target Surface) Context {
 		return newContextInError(StatusNullPointer)
 	}
 
-	ctx := &context{
-		refCount: 1,
-		target:   target.Reference(),
-		userData: make(map[*UserDataKey]interface{}),
-		gstate:   newGraphicsState(),
-		path:     &path{data: make([]pathOp, 0)},
-	}
+		ctx := &context{
+			refCount: 1,
+			target:   target.Reference(),
+			userData: make(map[*UserDataKey]interface{}),
+			gstate:   newGraphicsState(),
+			path:     &path{data: make([]pathOp, 0)},
+		}
+
+			switch s := target.(type) {
+			case ImageSurface:
+				if img := s.GetGoImage(); img != nil {
+					// draw2dimg.NewGraphicContext expects *image.RGBA or *image.NRGBA
+					// We assume ImageSurface.GetGoImage() returns *image.NRGBA for now
+					if nrgba, ok := img.(*image.NRGBA); ok {
+						ctx.gc = draw2dimg.NewGraphicContext(nrgba)
+					}
+				}
+			case *pdfSurface:
+				// Create a draw2d PDF context
+				pdfCtx := draw2dpdf.NewPdf(s.width, s.height)
+				ctx.gc = pdfCtx
+				s.gc = pdfCtx // Store a reference in the surface for Finish()
+			case *svgSurface:
+				// Create a draw2d SVG context
+				svgCtx := draw2dsvg.NewSvg()
+				svgCtx.SetDPI(72) // Default cairo DPI
+				svgCtx.SetCanvasSize(s.width, s.height)
+				ctx.gc = svgCtx
+				s.gc = svgCtx // Store a reference in the surface for Finish()
+			}
 
 	// Initialize default state
 	ctx.gstate.source = NewPatternRGB(0, 0, 0) // Black
@@ -213,22 +255,24 @@ func (c *context) Save() {
 		return
 	}
 
-	// Create a copy of current state
-	newState := &graphicsState{
-		source:      c.gstate.source.Reference(),
-		operator:    c.gstate.operator,
-		tolerance:   c.gstate.tolerance,
-		antialias:   c.gstate.antialias,
-		fillRule:    c.gstate.fillRule,
-		lineWidth:   c.gstate.lineWidth,
-		lineCap:     c.gstate.lineCap,
-		lineJoin:    c.gstate.lineJoin,
-		miterLimit:  c.gstate.miterLimit,
-		matrix:      c.gstate.matrix,
-		fontMatrix:  c.gstate.fontMatrix,
-		fontOptions: c.gstate.fontOptions, // TODO: Copy font options
-		next:        c.gstate,
-	}
+// Create a copy of current state
+			newState := &graphicsState{
+				source:      c.gstate.source.Reference(),
+				operator:    c.gstate.operator,
+				tolerance:   c.gstate.tolerance,
+				antialias:   c.gstate.antialias,
+				fillRule:    c.gstate.fillRule,
+				lineWidth:   c.gstate.lineWidth,
+				lineCap:     c.gstate.lineCap,
+				lineJoin:    c.gstate.lineJoin,
+				miterLimit:  c.gstate.miterLimit,
+				matrix:      c.gstate.matrix,
+				fontMatrix:  c.gstate.fontMatrix,
+				fontOptions: c.gstate.fontOptions, // TODO: Copy font options
+				clip:        c.gstate.clip, // Clip is part of the graphics state
+				next:        c.gstate,
+				groupSurface: c.gstate.groupSurface, // Copy group surface reference
+			}
 
 	// Copy dash array
 	if len(c.gstate.dash) > 0 {
@@ -269,10 +313,28 @@ func (c *context) Restore() {
 		c.gstate.scaledFont.Destroy()
 	}
 
-	// Restore previous state
-	oldState := c.gstate
-	c.gstate = oldState.next
-	oldState.next = nil
+				// Restore previous state
+				oldState := c.gstate
+				c.gstate = oldState.next
+				oldState.next = nil
+		
+				// If the old state was a group, restore the target and gc
+				if oldState.groupSurface != nil {
+					c.target = oldState.groupSurface.originalTarget
+					c.gc = oldState.groupSurface.originalGC
+					oldState.groupSurface.Surface.Destroy() // Destroy the temporary surface
+				}
+		
+				// Re-apply clip path to draw2d context
+				if c.gstate.clip != nil {
+					// Re-apply the path to draw2d for clipping
+					// This is a simplification; a proper implementation would need to store the draw2d path
+					// or re-create it from the cairo path structure.
+					// For now, we'll just reset the clip.
+					c.gc.SetClipPath(nil)
+				} else {
+					c.gc.SetClipPath(nil)
+				}
 }
 
 // Source pattern
@@ -612,60 +674,254 @@ func (c *context) ClosePath() {
 	c.currentPoint.y = c.path.subpathStartY
 }
 
-// Group operations
-func (c *context) PushGroup() {
-	if c.status != StatusSuccess {
+// Helper to convert cairo path to draw2d path
+func (c *context) applyPathToDraw2D() {
+	if c.gc == nil {
 		return
 	}
-	// TODO: Implement proper group operations
+
+	c.gc.BeginPath()
+	for _, op := range c.path.data {
+		switch op.op {
+		case PathMoveTo:
+			p := op.points[0]
+			c.gc.MoveTo(p.x, p.y)
+		case PathLineTo:
+			p := op.points[0]
+			c.gc.LineTo(p.x, p.y)
+		case PathCurveTo:
+			p1 := op.points[0]
+			p2 := op.points[1]
+			p3 := op.points[2]
+			c.gc.CurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
+		case PathClosePath:
+			c.gc.Close()
+		}
+	}
 }
 
-func (c *context) PushGroupWithContent(content Content) {
-	if c.status != StatusSuccess {
+// Helper to apply cairo state to draw2d context
+func (c *context) applyStateToDraw2D() {
+	if c.gc == nil {
 		return
 	}
-	// TODO: Implement proper group operations with content
+
+	// Line properties
+	c.gc.SetLineWidth(c.gstate.lineWidth)
+	c.gc.SetLineCap(cairoLineCapToDraw2D(c.gstate.lineCap))
+	c.gc.SetLineJoin(cairoLineJoinToDraw2D(c.gstate.lineJoin))
+	c.gc.SetMiterLimit(c.gstate.miterLimit)
+	c.gc.SetLineDash(c.gstate.dash, c.gstate.dashOffset)
+
+	// Transformation matrix
+	m := c.gstate.matrix
+	c.gc.SetMatrix(draw2d.Matrix{
+		m.XX, m.YX,
+		m.XY, m.YY,
+		m.X0, m.Y0,
+	})
+
+		// Source pattern
+		switch pattern := c.gstate.source.(type) {
+		case SolidPattern:
+			r, g, b, a := pattern.GetRGBA()
+			fillColor := color.NRGBA{
+				R: uint8(r * 255),
+				G: uint8(g * 255),
+				B: uint8(b * 255),
+				A: uint8(a * 255),
+			}
+			c.gc.SetFillColor(fillColor)
+			c.gc.SetStrokeColor(fillColor)
+		case LinearGradientPattern:
+			x0, y0, x1, y1 := pattern.GetLinearPoints()
+			grad := draw2d.NewLinearGradient(x0, y0, x1, y1)
+			for i := 0; i < pattern.GetColorStopCount(); i++ {
+				offset, r, g, b, a, _ := pattern.GetColorStop(i)
+				grad.AddColorStop(offset, color.NRGBA{
+					R: uint8(r * 255),
+					G: uint8(g * 255),
+					B: uint8(b * 255),
+					A: uint8(a * 255),
+				})
+			}
+			c.gc.SetFillColor(grad)
+			c.gc.SetStrokeColor(grad)
+		case RadialGradientPattern:
+			cx0, cy0, r0, cx1, cy1, r1 := pattern.GetRadialCircles()
+			grad := draw2d.NewRadialGradient(cx0, cy0, r0, cx1, cy1, r1)
+			for i := 0; i < pattern.GetColorStopCount(); i++ {
+				offset, r, g, b, a, _ := pattern.GetColorStop(i)
+				grad.AddColorStop(offset, color.NRGBA{
+					R: uint8(r * 255),
+					G: uint8(g * 255),
+					B: uint8(b * 255),
+					A: uint8(a * 255),
+				})
+			}
+			c.gc.SetFillColor(grad)
+			c.gc.SetStrokeColor(grad)
+				case SurfacePattern:
+					// Use the custom cairoSurfacePatternImage to handle extend, filter, and matrix
+					if surfPat, ok := pattern.(*surfacePattern); ok {
+						if imgSurf, ok := surfPat.GetSurface().(ImageSurface); ok {
+							if img := imgSurf.GetGoImage(); img != nil {
+								patImg := &cairoSurfacePatternImage{
+									sourceImg: img,
+									pattern:   surfPat,
+									ctm:       c.gstate.matrix,
+								}
+								c.gc.SetFillColor(patImg)
+								c.gc.SetStrokeColor(patImg)
+							}
+						}
+					}
+		}
+
+	// Fill rule
+	// draw2d defaults to NonZero (Winding), which is cairo's default.
+	// draw2d does not directly support EvenOdd, so we'll ignore it for now.
 }
 
-func (c *context) PopGroup() Pattern {
-	if c.status != StatusSuccess {
-		return nil
+func cairoLineCapToDraw2D(cap LineCap) draw2d.LineCap {
+	switch cap {
+	case LineCapRound:
+		return draw2d.RoundCap
+	case LineCapSquare:
+		return draw2d.SquareCap
+	case LineCapButt:
+		fallthrough
+	default:
+		return draw2d.ButtCap
 	}
-	// TODO: Implement proper group operations
-	return nil
 }
 
-func (c *context) PopGroupToSource() {
-	if c.status != StatusSuccess {
+func cairoLineJoinToDraw2D(join LineJoin) draw2d.LineJoin {
+	switch join {
+	case LineJoinRound:
+		return draw2d.RoundJoin
+	case LineJoinBevel:
+		return draw2d.BevelJoin
+	case LineJoinMiter:
+		fallthrough
+	default:
+		return draw2d.MiterJoin
+	}
+}
+	// Group operations
+	func (c *context) PushGroup() {
+		c.PushGroupWithContent(ContentColorAlpha)
+	}
+	
+	func (c *context) PushGroupWithContent(content Content) {
+		if c.status != StatusSuccess {
+			return
+		}
+		
+		// 1. Save current state
+		c.Save()
+		
+		// 2. Create a new temporary ImageSurface as the new target
+		// We use the current target's dimensions for the temporary surface.
+		imgSurface, ok := c.target.(ImageSurface)
+		if !ok {
+			c.status = StatusSurfaceTypeMismatch
+			return
+		}
+		
+		newSurface := NewImageSurface(FormatARGB32, imgSurface.GetWidth(), imgSurface.GetHeight())
+		
+		// 3. Create a new context for the new surface
+		newCtx := NewContext(newSurface).(*context)
+		
+		// 4. Replace current context's target and gc with the new one
+		c.target = newSurface
+		c.gc = newCtx.gc
+		
+		// 5. Store the old target and gc in the saved state (for PopGroup)
+		// We'll use the gstate.next to store the old target/gc temporarily.
+		// This is a simplification and not a true cairo group implementation.
+		// A proper implementation would require a dedicated group stack.
+		// For now, we'll just rely on the Save/Restore mechanism.
+	}
+	
+	func (c *context) PopGroup() Pattern {
+		if c.status != StatusSuccess {
+			return newPatternInError(c.status)
+		}
+		
+		// 1. Get the current target (which is the group surface)
+		groupSurface := c.target
+		
+		// 2. Restore the previous state (which restores the old target and gc)
+		c.Restore()
+		
+		// 3. Create a SurfacePattern from the group surface
+		pattern := NewPatternForSurface(groupSurface)
+		
+		// 4. Destroy the group surface (since the pattern holds a reference)
+		groupSurface.Destroy()
+		
+		return pattern
+	}
+	
+	func (c *context) PopGroupToSource() {
+		if c.status != StatusSuccess {
+			return
+		}
+		
+		pattern := c.PopGroup()
+		c.SetSource(pattern)
+		pattern.Destroy()
+	}
+	
+	func (c *context) GetGroupTarget() Surface {
+		// This is a simplification. The actual group target is the temporary surface.
+		// Since we don't have a dedicated group stack, we return the current target.
+		return c.target
+	}(c *context) Paint() {
+	if c.status != StatusSuccess || c.gc == nil {
 		return
 	}
-	// TODO: Implement proper group operations
-}
 
-// Drawing operations
-func (c *context) Paint() {
-	if c.status != StatusSuccess {
-		return
-	}
-	// TODO: Implement paint operation
-}
+	c.applyStateToDraw2D()
 
-func (c *context) PaintWithAlpha(alpha float64) {
-	if c.status != StatusSuccess {
-		return
-	}
-	// Save current source
-	oldSource := c.gstate.source
+	// Cairo's paint is equivalent to filling the current clip region with the source pattern.
+	// Since clipping is not fully implemented, we'll fill the entire surface.
+	// We need to get the surface dimensions.
+	if imgSurface, ok := c.target.(ImageSurface); ok {
+		width := float64(imgSurface.GetWidth())
+		height := float64(imgSurface.GetHeight())
 
-	// Create new source with alpha
-	// TODO: Implement proper alpha blending
-
-	// Restore source
-	c.gstate.source = oldSource
-	if oldSource != nil {
-		oldSource.Destroy()
+		c.gc.BeginPath()
+		c.gc.MoveTo(0, 0)
+		c.gc.LineTo(width, 0)
+		c.gc.LineTo(width, height)
+		c.gc.LineTo(0, height)
+		c.gc.Close()
+		c.gc.Fill()
 	}
 }
+
+	func (c *context) PaintWithAlpha(alpha float64) {
+		if c.status != StatusSuccess || c.gc == nil {
+			return
+		}
+		
+		// 1. Save current state
+		c.Save()
+		
+		// 2. Modify the source pattern's alpha (if possible)
+		// This is a simplification. Cairo creates a new pattern with the alpha applied.
+		// We'll temporarily change the global alpha of the draw2d context.
+		c.gc.SetGlobalAlpha(alpha)
+		
+		// 3. Perform the paint operation
+		c.Paint()
+		
+		// 4. Restore the state (which restores the original alpha)
+		c.Restore()
+	}
 
 func (c *context) Mask(pattern Pattern) {
 	if c.status != StatusSuccess {
@@ -693,33 +949,45 @@ func (c *context) MaskSurface(surface Surface, surfaceX, surfaceY float64) {
 
 // Path operations
 func (c *context) Stroke() {
-	if c.status != StatusSuccess {
+	if c.status != StatusSuccess || c.gc == nil {
 		return
 	}
-	// TODO: Implement stroke operation
+
+	c.applyStateToDraw2D()
+	c.applyPathToDraw2D()
+	c.gc.Stroke()
 	c.NewPath() // Clear path after stroke
 }
 
 func (c *context) StrokePreserve() {
-	if c.status != StatusSuccess {
+	if c.status != StatusSuccess || c.gc == nil {
 		return
 	}
-	// TODO: Implement stroke operation without clearing path
+
+	c.applyStateToDraw2D()
+	c.applyPathToDraw2D()
+	c.gc.Stroke()
 }
 
 func (c *context) Fill() {
-	if c.status != StatusSuccess {
+	if c.status != StatusSuccess || c.gc == nil {
 		return
 	}
-	// TODO: Implement fill operation
+
+	c.applyStateToDraw2D()
+	c.applyPathToDraw2D()
+	c.gc.Fill()
 	c.NewPath() // Clear path after fill
 }
 
 func (c *context) FillPreserve() {
-	if c.status != StatusSuccess {
+	if c.status != StatusSuccess || c.gc == nil {
 		return
 	}
-	// TODO: Implement fill operation without clearing path
+
+	c.applyStateToDraw2D()
+	c.applyPathToDraw2D()
+	c.gc.Fill()
 }
 
 // Arc implementation using Bezier curves
@@ -888,37 +1156,322 @@ func (c *context) Rectangle(x, y, width, height float64) {
 
 // More placeholder implementations
 func (c *context) PathExtents() (x1, y1, x2, y2 float64)                            { return 0, 0, 0, 0 }
-func (c *context) Clip()                                                            { /* TODO */ }
-func (c *context) ClipPreserve()                                                    { /* TODO */ }
-func (c *context) ClipExtents() (x1, y1, x2, y2 float64)                            { return 0, 0, 0, 0 }
-func (c *context) InClip(x, y float64) Bool                                         { return False }
-func (c *context) ResetClip()                                                       { /* TODO */ }
+func (c *context) Clip() {
+	if c.status != StatusSuccess || c.gc == nil {
+		return
+	}
+
+	// Set the current path as the new clip path
+	c.gstate.clip = &clipRegion{
+		path:      c.path,
+		fillRule:  c.gstate.fillRule,
+		tolerance: c.gstate.tolerance,
+		antialias: c.gstate.antialias,
+		prev:      c.gstate.clip, // Push current clip onto stack
+	}
+
+	// Apply the new clip path to draw2d
+	c.applyPathToDraw2D()
+	c.gc.SetClipPath(c.gc.GetPath())
+
+	// Clear the current path
+	c.NewPath()
+}
+
+func (c *context) ClipPreserve() {
+	if c.status != StatusSuccess || c.gc == nil {
+		return
+	}
+
+	// Set the current path as the new clip path, but don't clear the path
+	c.gstate.clip = &clipRegion{
+		path:      c.path,
+		fillRule:  c.gstate.fillRule,
+		tolerance: c.gstate.tolerance,
+		antialias: c.gstate.antialias,
+		prev:      c.gstate.clip, // Push current clip onto stack
+	}
+
+	// Apply the new clip path to draw2d
+	c.applyPathToDraw2D()
+	c.gc.SetClipPath(c.gc.GetPath())
+}
+
+func (c *context) ClipExtents() (x1, y1, x2, y2 float64) {
+	// TODO: Implement proper clip extents calculation
+	return 0, 0, 0, 0
+}
+
+func (c *context) InClip(x, y float64) Bool {
+	// TODO: Implement proper point-in-clip check
+	return False
+}
+
+func (c *context) ResetClip() {
+	if c.status != StatusSuccess || c.gc == nil {
+		return
+	}
+
+	// Clear the clip stack
+	c.gstate.clip = nil
+
+	// Reset clip in draw2d
+	c.gc.SetClipPath(nil)
+}
 func (c *context) CopyClipRectangleList() *RectangleList                            { return nil }
 func (c *context) InStroke(x, y float64) Bool                                       { return False }
 func (c *context) InFill(x, y float64) Bool                                         { return False }
 func (c *context) StrokeExtents() (x1, y1, x2, y2 float64)                          { return 0, 0, 0, 0 }
 func (c *context) FillExtents() (x1, y1, x2, y2 float64)                            { return 0, 0, 0, 0 }
-func (c *context) CopyPath() *Path                                                  { return nil }
-func (c *context) CopyPathFlat() *Path                                              { return nil }
-func (c *context) AppendPath(path *Path)                                            { /* TODO */ }
-func (c *context) ShowText(utf8 string)                                             { /* TODO */ }
-func (c *context) ShowGlyphs(glyphs []Glyph)                                        { /* TODO */ }
-func (c *context) ShowTextGlyphs(string, []Glyph, []TextCluster, TextClusterFlags)  { /* TODO */ }
-func (c *context) TextPath(utf8 string)                                             { /* TODO */ }
-func (c *context) GlyphPath(glyphs []Glyph)                                         { /* TODO */ }
-func (c *context) TextExtents(utf8 string) *TextExtents                             { return nil }
-func (c *context) GlyphExtents(glyphs []Glyph) *TextExtents                         { return nil }
-func (c *context) SelectFontFace(family string, slant FontSlant, weight FontWeight) { /* TODO */ }
-func (c *context) SetFontSize(size float64)                                         { /* TODO */ }
-func (c *context) SetFontMatrix(matrix *Matrix)                                     { c.gstate.fontMatrix = *matrix }
-func (c *context) GetFontMatrix() *Matrix                                           { m := c.gstate.fontMatrix; return &m }
-func (c *context) SetFontOptions(options *FontOptions)                              { c.gstate.fontOptions = options }
-func (c *context) GetFontOptions() *FontOptions                                     { return c.gstate.fontOptions }
-func (c *context) SetFontFace(fontFace FontFace)                                    { c.gstate.fontFace = fontFace }
-func (c *context) GetFontFace() FontFace                                            { return c.gstate.fontFace }
-func (c *context) SetScaledFont(scaledFont ScaledFont)                              { c.gstate.scaledFont = scaledFont }
-func (c *context) GetScaledFont() ScaledFont                                        { return c.gstate.scaledFont }
-func (c *context) FontExtents() *FontExtents                                        { return nil }
+func (c *context) CopyPath() *Path {
+	if c.status != StatusSuccess {
+		return &Path{Status: c.status}
+	}
+
+	newPath := &Path{
+		Status: StatusSuccess,
+		Data:   make([]PathData, len(c.path.data)),
+	}
+
+	for i, op := range c.path.data {
+		data := PathData{
+			Type: op.op,
+			Points: make([]Point, len(op.points)),
+		}
+		for j, p := range op.points {
+			data.Points[j] = Point{X: p.x, Y: p.y}
+		}
+		newPath.Data[i] = data
+	}
+
+	return newPath
+}
+
+func (c *context) CopyPathFlat() *Path {
+	// TODO: Implement proper path flattening (converting curves to line segments)
+	// For now, return a copy of the existing path.
+	return c.CopyPath()
+}
+
+func (c *context) AppendPath(path *Path) {
+	if c.status != StatusSuccess || path.Status != StatusSuccess {
+		return
+	}
+
+	for _, data := range path.Data {
+		op := pathOp{
+			op:     data.Type,
+			points: make([]point, len(data.Points)),
+		}
+		for i, p := range data.Points {
+			op.points[i] = point{x: p.X, y: p.Y}
+		}
+		c.path.data = append(c.path.data, op)
+
+		// Update current point
+		if len(op.points) > 0 {
+			lastPoint := op.points[len(op.points)-1]
+			c.currentPoint.x = lastPoint.x
+			c.currentPoint.y = lastPoint.y
+			c.currentPoint.hasPoint = true
+		}
+
+		// Update subpath start point on MoveTo
+		if op.op == PathMoveTo {
+			c.path.subpathStartX = c.currentPoint.x
+			c.path.subpathStartY = c.currentPoint.y
+		}
+	}
+}
+func (c *context) ShowText(utf8 string) {
+	if c.status != StatusSuccess || c.gc == nil {
+		return
+	}
+
+	// Cairo's ShowText is equivalent to TextPath followed by Fill.
+	c.TextPath(utf8)
+	c.gc.Fill()
+}
+
+func (c *context) ShowGlyphs(glyphs []Glyph) {
+	if c.status != StatusSuccess || c.gc == nil {
+		return
+	}
+
+	// TODO: Implement proper glyph rendering.
+	// For now, we'll just use the current point and a placeholder.
+	// This is a major simplification and needs a proper font library integration.
+	c.gc.SetFillColor(color.Black)
+	c.gc.FillStringAt("GLYPHS", c.currentPoint.x, c.currentPoint.y)
+}
+
+func (c *context) ShowTextGlyphs(utf8 string, glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags) {
+	if c.status != StatusSuccess || c.gc == nil {
+		return
+	}
+
+	// This is a complex function for advanced text rendering.
+	// For now, we'll fall back to simple ShowText.
+	c.ShowText(utf8)
+}
+
+func (c *context) TextPath(utf8 string) {
+	if c.status != StatusSuccess || c.gc == nil {
+		return
+	}
+
+	// This is a major simplification. Proper implementation requires:
+	// 1. Getting the current scaled font.
+	// 2. Using the font to convert text to glyphs and positions.
+	// 3. Converting glyph outlines to a path.
+
+	// Since we don't have a real font engine, we'll use draw2d's simple text drawing
+	// as a temporary path approximation.
+
+	// 1. Apply state to draw2d
+	c.applyStateToDraw2D()
+
+	// 2. Get font information (simplified)
+	// draw2d uses a global font registry, so we can't directly use cairo's FontFace/ScaledFont.
+	// We'll use a default font for now.
+	c.gc.SetFontData(draw2d.FontData{Name: "luxi", Family: draw2d.FontFamilySans, Style: draw2d.FontStyleNormal})
+	c.gc.SetFontSize(12) // Placeholder size
+
+	// 3. Draw the text (which implicitly creates a path in draw2d)
+	// We need to move to the current point first.
+	x, y := c.GetCurrentPoint()
+	c.gc.MoveTo(x, y)
+	c.gc.FillString(utf8)
+
+	// 4. Update the cairo path (this is the hard part, as draw2d doesn't expose the path)
+	// For now, we'll just clear the cairo path and rely on draw2d's internal path.
+	c.NewPath()
+}
+	func (c *context) GlyphPath(glyphs []Glyph) {
+		if c.status != StatusSuccess || c.gc == nil {
+			return
+		}
+		
+		// 1. Get the scaled font
+		sf := c.GetScaledFont()
+		realFace, status := sf.getRealFace()
+		if status != StatusSuccess {
+			return
+		}
+		
+		// 2. Convert cairo glyphs to go-text/typesetting glyphs
+		tsGlyphs := make([]shaping.Glyph, len(glyphs))
+		for i, g := range glyphs {
+			tsGlyphs[i] = shaping.Glyph{
+				ID: font.GID(g.Index),
+				X:  fixed.Int26_6(g.X * 64), // Assuming X, Y are in user space and need to be converted to fixed point
+				Y:  fixed.Int26_6(g.Y * 64),
+			}
+		}
+		
+		// 3. Get the path from the glyphs
+		// This is a major simplification. go-text/typesetting does not directly
+		// expose a path from a list of glyphs. We would need to iterate over the
+		// glyphs, get their outlines, and convert them to a cairo path.
+		// For now, we'll use draw2d's simplified text path, which is not accurate.
+		
+		// Fallback to a simplified path approximation
+		c.applyStateToDraw2D()
+		
+		// Move to the first glyph's position
+		if len(glyphs) > 0 {
+			c.gc.MoveTo(glyphs[0].X, glyphs[0].Y)
+		}
+		
+		// Draw a line for each glyph's advance as a path approximation
+		for i := 1; i < len(glyphs); i++ {
+			c.gc.LineTo(glyphs[i].X, glyphs[i].Y)
+		}
+		
+		// Clear the cairo path and rely on draw2d's internal path
+		c.NewPath()
+	}
+	func (c *context) TextExtents(utf8 string) *TextExtents                             { return c.GetScaledFont().TextExtents(utf8) }
+	func (c *context) GlyphExtents(glyphs []Glyph) *TextExtents                         { return c.GetScaledFont().GlyphExtents(glyphs) }
+	func (c *context) SelectFontFace(family string, slant FontSlant, weight FontWeight) { 
+		// In a real implementation, this would involve a font lookup service.
+		// For now, we only support the default font, but we set the font face
+		// to allow the scaled font to be created.
+		c.SetFontFace(NewToyFontFace(family, slant, weight)) 
+	}
+	func (c *context) SetFontSize(size float64)                                         { /* TODO: Update font matrix */ }
+	func (c *context) SetFontMatrix(matrix *Matrix)                                     { c.gstate.fontMatrix = *matrix }
+	func (c *context) GetFontMatrix() *Matrix                                           { m := c.gstate.fontMatrix; return &m }
+	func (c *context) SetFontOptions(options *FontOptions)                              { c.gstate.fontOptions = options }
+	func (c *context) GetFontOptions() *FontOptions                                     { return c.gstate.fontOptions }
+	func (c *context) SetFontFace(fontFace FontFace)                                    { c.gstate.fontFace = fontFace }
+	func (c *context) GetFontFace() FontFace                                            { return c.gstate.fontFace }
+	func (c *context) SetScaledFont(scaledFont ScaledFont)                              { c.gstate.scaledFont = scaledFont }
+	func (c *context) GetScaledFont() ScaledFont                                        { 
+		if c.gstate.scaledFont == nil {
+			// Create a default scaled font if none is set
+			ff := c.GetFontFace()
+			if ff == nil {
+				ff = NewToyFontFace("sans", FontSlantNormal, FontWeightNormal)
+			}
+			c.gstate.scaledFont = NewScaledFont(ff, &c.gstate.fontMatrix, &c.gstate.matrix, c.gstate.fontOptions)
+		}
+		return c.gstate.scaledFont
+	}
+	func (c *context) FontExtents() *FontExtents                                        { return c.GetScaledFont().Extents() }
+	
+	// Path query functions
+	
+	func (c *context) PathExtents() (x1, y1, x2, y2 float64) {
+		// This is a simplification. The correct way is to calculate the bounding box
+		// of the path in user space.
+		// Since draw2d doesn't expose the path data easily, we'll use a rough estimate.
+		// For now, we'll use the bounding box of the draw2d path.
+		c.applyStateToDraw2D()
+		bbox := c.gc.GetPath().Bounds()
+		return bbox.Min.X, bbox.Min.Y, bbox.Max.X, bbox.Max.Y
+	}
+	
+	func (c *context) StrokeExtents() (x1, y1, x2, y2 float64) {
+		// This is a simplification. The correct way is to calculate the bounding box
+		// of the stroked path in user space.
+		// For now, we'll use the bounding box of the draw2d path.
+		c.applyStateToDraw2D()
+		bbox := c.gc.GetPath().Bounds()
+		return bbox.Min.X, bbox.Min.Y, bbox.Max.X, bbox.Max.Y
+	}
+	
+	func (c *context) FillExtents() (x1, y1, x2, y2 float64) {
+		// This is a simplification. The correct way is to calculate the bounding box
+		// of the filled path in user space.
+		// For now, we'll use the bounding box of the draw2d path.
+		c.applyStateToDraw2D()
+		bbox := c.gc.GetPath().Bounds()
+		return bbox.Min.X, bbox.Min.Y, bbox.Max.X, bbox.Max.Y
+	}
+	
+	func (c *context) InStroke(x, y float64) bool {
+		// This is a simplification. The correct way is to check if the point
+		// is within the stroked path.
+		// draw2d does not expose this functionality easily.
+		// For now, we'll return false.
+		return false
+	}
+	
+	func (c *context) InFill(x, y float64) bool {
+		// This is a simplification. The correct way is to check if the point
+		// is within the filled path.
+		// draw2d does not expose this functionality easily.
+		// For now, we'll return false.
+		return false
+	}
+	
+	func (c *context) InClip(x, y float64) bool {
+		// This is a simplification. The correct way is to check if the point
+		// is within the current clip region.
+		// For now, we'll return true if no clip is set.
+		return c.gstate.clip == nil
+	}
 
 // Helper functions for matrix operations
 

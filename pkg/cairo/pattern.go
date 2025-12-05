@@ -1,6 +1,9 @@
 package cairo
 
 import (
+	"image"
+	"image/color"
+	"math"
 	"sync/atomic"
 	"unsafe"
 )
@@ -15,6 +18,111 @@ type solidPattern struct {
 type surfacePattern struct {
 	basePattern
 	surface Surface
+}
+
+// cairoSurfacePatternImage implements image.Image and draw2d.Pattern,
+// handling the transformation, extend, and filter logic.
+type cairoSurfacePatternImage struct {
+	sourceImg image.Image
+	pattern   *surfacePattern
+	ctm       Matrix // Current Transformation Matrix from cairo.Context
+}
+
+// ColorModel implements image.Image.
+func (p *cairoSurfacePatternImage) ColorModel() color.Model {
+	return p.sourceImg.ColorModel()
+}
+
+// Bounds implements image.Image.
+func (p *cairoSurfacePatternImage) Bounds() image.Rectangle {
+	// The bounds of the pattern are effectively infinite, but for draw2d
+	// we can return the bounds of the target surface, or just the source image.
+	// Since draw2d will use the At() method, the bounds are less critical
+	// than the At() implementation. Let's use the source image bounds.
+	return p.sourceImg.Bounds()
+}
+
+// At implements image.Image. This is the core logic.
+func (p *cairoSurfacePatternImage) At(x, y int) color.Color {
+	// 1. Convert device coordinate (x, y) to user space (ux, uy)
+	// This step is implicitly handled by draw2d when it calls At(x, y)
+	// on the pattern image, as draw2d's GraphicContext already applies the CTM
+	// to the fill/stroke operation before sampling the pattern.
+	// However, draw2d's pattern sampling is typically done in device space
+	// and then transformed by the pattern's matrix.
+	
+	// Let's assume (x, y) are coordinates in the pattern's user space,
+	// which is what draw2d's SetFillPattern expects after applying the CTM.
+	
+	// 2. Convert pattern user space (x, y) to pattern source space (sx, sy)
+	// Pattern source space = Pattern Matrix Inverse * Pattern User Space
+	
+	// Copy pattern matrix and invert it
+	patMatrix := p.pattern.matrix
+	if status := MatrixInvert(&patMatrix); status != StatusSuccess {
+		// Fallback to solid black on error
+		return color.NRGBA{A: 0xFF}
+	}
+	
+	sx, sy := MatrixTransformPoint(&patMatrix, float64(x), float64(y))
+	
+	// 3. Apply Extend logic
+	srcBounds := p.sourceImg.Bounds()
+	srcW := float64(srcBounds.Dx())
+	srcH := float64(srcBounds.Dy())
+	
+	// Normalize coordinates to [0, srcW) and [0, srcH)
+	var finalX, finalY float64
+	
+	switch p.pattern.extend {
+	case ExtendNone:
+		if sx < 0 || sx >= srcW || sy < 0 || sy >= srcH {
+			return color.NRGBA{A: 0x00} // Transparent
+		}
+		finalX, finalY = sx, sy
+	case ExtendRepeat:
+		finalX = math.Mod(sx, srcW)
+		if finalX < 0 {
+			finalX += srcW
+		}
+		finalY = math.Mod(sy, srcH)
+		if finalY < 0 {
+			finalY += srcH
+		}
+	case ExtendReflect:
+		// Reflect logic: 0..W, W..0, 0..W, ...
+		finalX = math.Mod(sx, 2*srcW)
+		if finalX < 0 {
+			finalX += 2 * srcW
+		}
+		if finalX >= srcW {
+			finalX = 2*srcW - finalX
+		}
+		
+		finalY = math.Mod(sy, 2*srcH)
+		if finalY < 0 {
+			finalY += 2 * srcH
+		}
+		if finalY >= srcH {
+			finalY = 2*srcH - finalY
+		}
+	case ExtendPad:
+		finalX = math.Max(0, math.Min(sx, srcW-1))
+		finalY = math.Max(0, math.Min(sy, srcH-1))
+	default:
+		finalX, finalY = sx, sy // Fallback to no extend
+	}
+	
+	// 4. Apply Filter logic (simplification: nearest neighbor for Fast, bilinear for Good/Best)
+	// Since draw2d's At() method is called with integer coordinates, we'll use nearest neighbor.
+	// For better filtering, we would need to implement a custom image sampler.
+	
+	// Convert back to integer coordinates relative to the source image's Min point
+	srcX := int(finalX) + srcBounds.Min.X
+	srcY := int(finalY) + srcBounds.Min.Y
+	
+	// 5. Sample color
+	return p.sourceImg.At(srcX, srcY)
 }
 
 // gradientPattern is the base for gradient patterns

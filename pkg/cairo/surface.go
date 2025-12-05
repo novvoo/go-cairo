@@ -7,6 +7,9 @@ import (
 	"os"
 	"sync/atomic"
 	"unsafe"
+	
+	"github.com/llgcode/draw2d/draw2dpdf"
+	"github.com/llgcode/draw2d/draw2dsvg"
 )
 
 // imageSurface implements image-based surfaces
@@ -281,18 +284,25 @@ func (s *baseSurface) GetFontOptions() *FontOptions {
 	return s.fontOptions
 }
 
-func (s *baseSurface) Finish() {
-	if s.finished {
-		return
+	func (s *baseSurface) Finish() {
+		if s.finished {
+			return
+		}
+		s.finished = true
+		
+		// Clean up snapshots
+		for _, snapshot := range s.snapshots {
+			snapshot.Destroy()
+		}
+		s.snapshots = nil
+		
+		// Call concrete surface finish
+		s.finishConcrete()
 	}
-	s.finished = true
 	
-	// Clean up snapshots
-	for _, snapshot := range s.snapshots {
-		snapshot.Destroy()
+	func (s *baseSurface) finishConcrete() {
+		// Default implementation does nothing
 	}
-	s.snapshots = nil
-}
 
 func (s *baseSurface) CreateSimilar(content Content, width, height int) Surface {
 	// Default implementation creates an image surface
@@ -481,15 +491,141 @@ func LoadPNGSurface(filename string) (Surface, error) {
 	return surface, nil
 }
 
-// Surface-specific interfaces for type assertions
-
-type ImageSurface interface {
-	Surface
-	GetData() []byte
-	GetWidth() int
-	GetHeight() int
-	GetStride() int
-	GetFormat() Format
-	GetGoImage() image.Image
-	WriteToPNG(filename string) Status
+	// Surface-specific interfaces for type assertions
+	
+	type ImageSurface interface {
+		Surface
+		GetData() []byte
+		GetWidth() int
+		GetHeight() int
+		GetStride() int
+		GetFormat() Format
+		GetGoImage() image.Image
+		WriteToPNG(filename string) Status
+	}
+	
+// pdfSurface implements PDF output surface
+type pdfSurface struct {
+	baseSurface
+	filename string
+	width, height float64
+	gc *draw2dpdf.GraphicContext // draw2d context for writing
 }
+	
+// svgSurface implements SVG output surface
+type svgSurface struct {
+	baseSurface
+	filename string
+	width, height float64
+	gc *draw2dsvg.GraphicContext // draw2d context for writing
+}
+	
+	// NewPDFSurface creates a new PDF surface
+	func NewPDFSurface(filename string, widthInPoints, heightInPoints float64) Surface {
+		surface := &pdfSurface{
+			baseSurface: baseSurface{
+				refCount: 1,
+				status: StatusSuccess,
+				surfaceType: SurfaceTypePDF,
+				content: ContentColorAlpha,
+				userData: make(map[*UserDataKey]interface{}),
+				fontOptions: &FontOptions{},
+				fallbackResolutionX: 72.0,
+				fallbackResolutionY: 72.0,
+			},
+			filename: filename,
+			width: widthInPoints,
+			height: heightInPoints,
+		}
+		surface.deviceTransform.InitIdentity()
+		surface.deviceTransformInverse.InitIdentity()
+		return surface
+	}
+	
+	// NewSVGSurface creates a new SVG surface
+	func NewSVGSurface(filename string, widthInPoints, heightInPoints float64) Surface {
+		surface := &svgSurface{
+			baseSurface: baseSurface{
+				refCount: 1,
+				status: StatusSuccess,
+				surfaceType: SurfaceTypeSVG,
+				content: ContentColorAlpha,
+				userData: make(map[*UserDataKey]interface{}),
+				fontOptions: &FontOptions{},
+				fallbackResolutionX: 72.0,
+				fallbackResolutionY: 72.0,
+			},
+			filename: filename,
+			width: widthInPoints,
+			height: heightInPoints,
+		}
+		surface.deviceTransform.InitIdentity()
+		surface.deviceTransformInverse.InitIdentity()
+		return surface
+	}
+	
+	// PDFSurface implementation
+	
+	func (s *pdfSurface) getSurface() Surface {
+		return s
+	}
+	
+	func (s *pdfSurface) Reference() Surface {
+		atomic.AddInt32(&s.refCount, 1)
+		return s
+	}
+	
+	func (s *pdfSurface) GetWidth() float64 {
+		return s.width
+	}
+	
+	func (s *pdfSurface) GetHeight() float64 {
+		return s.height
+	}
+	
+	func (s *pdfSurface) finishConcrete() {
+		if s.gc == nil {
+			s.status = StatusSurfaceTypeMismatch
+			return
+		}
+		
+		err := draw2dpdf.SaveToPdfFile(s.filename, s.gc)
+		if err != nil {
+			s.status = StatusWriteError
+			return
+		}
+		s.status = StatusSuccess
+	}
+	
+	// SVGSurface implementation
+	
+	func (s *svgSurface) getSurface() Surface {
+		return s
+	}
+	
+	func (s *svgSurface) Reference() Surface {
+		atomic.AddInt32(&s.refCount, 1)
+		return s
+	}
+	
+	func (s *svgSurface) GetWidth() float64 {
+		return s.width
+	}
+	
+	func (s *svgSurface) GetHeight() float64 {
+		return s.height
+	}
+	
+	func (s *svgSurface) finishConcrete() {
+		if s.gc == nil {
+			s.status = StatusSurfaceTypeMismatch
+			return
+		}
+		
+		err := draw2dsvg.SaveToSvgFile(s.filename, s.gc)
+		if err != nil {
+			s.status = StatusWriteError
+			return
+		}
+		s.status = StatusSuccess
+	}
