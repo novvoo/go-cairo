@@ -113,16 +113,17 @@ func (p *cairoSurfacePatternImage) At(x, y int) color.Color {
 		finalX, finalY = sx, sy // Fallback to no extend
 	}
 	
-	// 4. Apply Filter logic (simplification: nearest neighbor for Fast, bilinear for Good/Best)
-	// Since draw2d's At() method is called with integer coordinates, we'll use nearest neighbor.
-	// For better filtering, we would need to implement a custom image sampler.
-	
-	// Convert back to integer coordinates relative to the source image's Min point
-	srcX := int(finalX) + srcBounds.Min.X
-	srcY := int(finalY) + srcBounds.Min.Y
-	
-	// 5. Sample color
-	return p.sourceImg.At(srcX, srcY)
+		// 4. Apply Filter logic (simplification: nearest neighbor for Fast, bilinear for Good/Best)
+		// Since draw2d's At() method is called with integer coordinates, we'll use nearest neighbor.
+		// For better filtering, we would need to implement a custom image sampler.
+		
+		// Convert back to integer coordinates relative to the source image's Min point
+		srcX := int(finalX) + srcBounds.Min.X
+		srcY := int(finalY) + srcBounds.Min.Y
+		
+		// 5. Sample color
+		// TODO: Implement proper filtering based on p.pattern.filter
+		return p.sourceImg.At(srcX, srcY)
 }
 
 // gradientPattern is the base for gradient patterns

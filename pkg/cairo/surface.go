@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync/atomic"
 	"unsafe"
+	"sync"
 	
 	"github.com/llgcode/draw2d/draw2dpdf"
 	"github.com/llgcode/draw2d/draw2dsvg"
@@ -28,11 +29,12 @@ type imageSurface struct {
 }
 
 // baseSurface provides common surface functionality
-type baseSurface struct {
-	refCount    int32
-	status      Status
-	surfaceType SurfaceType
-	content     Content
+	type baseSurface struct {
+		mu sync.Mutex // Mutex for concurrency safety
+		refCount    int32
+		status      Status
+		surfaceType SurfaceType
+		content     Content
 	
 	// Device properties
 	device Device
@@ -304,9 +306,12 @@ func (s *baseSurface) GetFontOptions() *FontOptions {
 		// Default implementation does nothing
 	}
 
-func (s *baseSurface) CreateSimilar(content Content, width, height int) Surface {
-	// Default implementation creates an image surface
-	var format Format
+	func (s *baseSurface) CreateSimilar(content Content, width, height int) Surface {
+		// Default implementation creates an image surface
+		if s.surfaceType == SurfaceTypeRecording {
+			return NewRecordingSurface(content, float64(width), float64(height))
+		}
+		var format Format
 	switch content {
 	case ContentColor:
 		format = FormatRGB24
@@ -513,12 +518,19 @@ type pdfSurface struct {
 }
 	
 // svgSurface implements SVG output surface
-type svgSurface struct {
-	baseSurface
-	filename string
-	width, height float64
-	gc *draw2dsvg.GraphicContext // draw2d context for writing
-}
+	type svgSurface struct {
+		baseSurface
+		filename string
+		width, height float64
+		gc *draw2dsvg.GraphicContext // draw2d context for writing
+	}
+
+	// recordingSurface implements a surface that records drawing operations
+	type recordingSurface struct {
+		baseSurface
+		extents image.Rectangle
+		// TODO: Store a list of serialized drawing operations
+	}
 	
 	// NewPDFSurface creates a new PDF surface
 	func NewPDFSurface(filename string, widthInPoints, heightInPoints float64) Surface {
@@ -558,6 +570,26 @@ type svgSurface struct {
 			filename: filename,
 			width: widthInPoints,
 			height: heightInPoints,
+		}
+		surface.deviceTransform.InitIdentity()
+		surface.deviceTransformInverse.InitIdentity()
+		return surface
+	}
+
+	// NewRecordingSurface creates a new recording surface
+	func NewRecordingSurface(content Content, width, height float64) Surface {
+		surface := &recordingSurface{
+			baseSurface: baseSurface{
+				refCount: 1,
+				status: StatusSuccess,
+				surfaceType: SurfaceTypeRecording,
+				content: content,
+				userData: make(map[*UserDataKey]interface{}),
+				fontOptions: &FontOptions{},
+				fallbackResolutionX: 72.0,
+				fallbackResolutionY: 72.0,
+			},
+			extents: image.Rect(0, 0, int(width), int(height)),
 		}
 		surface.deviceTransform.InitIdentity()
 		surface.deviceTransformInverse.InitIdentity()

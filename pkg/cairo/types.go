@@ -14,6 +14,25 @@ const (
 )
 
 // Status represents cairo_status_t - error status codes
+type Error struct {
+	Status Status
+	Msg    string
+}
+
+func (e Error) Error() string {
+	if e.Msg != "" {
+		return e.Msg
+	}
+	return e.Status.String()
+}
+
+func newError(status Status, msg string) error {
+	if status == StatusSuccess {
+		return nil
+	}
+	return Error{Status: status, Msg: msg}
+}
+
 type Status int
 
 const (
@@ -102,6 +121,9 @@ const (
 
 // Operator represents cairo_operator_t - compositing operators
 type Operator int
+
+// BlendFunc defines a function that blends a source and destination color.
+type BlendFunc func(src, dst color.Color) color.Color
 
 const (
 	OperatorClear Operator = iota
@@ -248,10 +270,10 @@ type UserDataKey struct {
 type DestroyFunc func(data unsafe.Pointer)
 
 // WriteFunc represents cairo_write_func_t - write callback for surfaces
-type WriteFunc func(closure interface{}, data []byte) Status
+	type WriteFunc func(closure interface{}, data []byte) error
 
 // ReadFunc represents cairo_read_func_t - read callback for surfaces
-type ReadFunc func(closure interface{}, data []byte) Status
+	type ReadFunc func(closure interface{}, data []byte) error
 
 // TextExtents represents cairo_text_extents_t - text measurement
 type TextExtents struct {
@@ -330,6 +352,106 @@ const (
 	FontWeightNormal FontWeight = iota
 	FontWeightBold
 )
+
+// Status.String() provides a human-readable error message.
+func (s Status) String() string {
+	switch s {
+	case StatusSuccess:
+		return "success"
+	case StatusNoMemory:
+		return "no memory"
+	case StatusInvalidRestore:
+		return "invalid restore"
+	case StatusInvalidPopGroup:
+		return "invalid pop group"
+	case StatusNoCurrentPoint:
+		return "no current point"
+	case StatusInvalidMatrix:
+		return "invalid matrix"
+	case StatusInvalidStatus:
+		return "invalid status"
+	case StatusNullPointer:
+		return "null pointer"
+	case StatusInvalidString:
+		return "invalid string"
+	case StatusInvalidPathData:
+		return "invalid path data"
+	case StatusReadError:
+		return "read error"
+	case StatusWriteError:
+		return "write error"
+	case StatusSurfaceFinished:
+		return "surface finished"
+	case StatusSurfaceTypeMismatch:
+		return "surface type mismatch"
+	case StatusPatternTypeMismatch:
+		return "pattern type mismatch"
+	case StatusInvalidContent:
+		return "invalid content"
+	case StatusInvalidFormat:
+		return "invalid format"
+	case StatusInvalidVisual:
+		return "invalid visual"
+	case StatusFileNotFound:
+		return "file not found"
+	case StatusInvalidDash:
+		return "invalid dash"
+	case StatusInvalidDscComment:
+		return "invalid dsc comment"
+	case StatusInvalidIndex:
+		return "invalid index"
+	case StatusClipNotRepresentable:
+		return "clip not representable"
+	case StatusTempFileError:
+		return "temp file error"
+	case StatusInvalidStride:
+		return "invalid stride"
+	case StatusFontTypeMismatch:
+		return "font type mismatch"
+	case StatusUserFontImmutable:
+		return "user font immutable"
+	case StatusUserFontError:
+		return "user font error"
+	case StatusNegativeCount:
+		return "negative count"
+	case StatusInvalidClusters:
+		return "invalid clusters"
+	case StatusInvalidSlant:
+		return "invalid slant"
+	case StatusInvalidWeight:
+		return "invalid weight"
+	case StatusInvalidSize:
+		return "invalid size"
+	case StatusUserFontNotImplemented:
+		return "user font not implemented"
+	case StatusDeviceTypeMismatch:
+		return "device type mismatch"
+	case StatusDeviceError:
+		return "device error"
+	case StatusInvalidMeshConstruction:
+		return "invalid mesh construction"
+	case StatusDeviceFinished:
+		return "device finished"
+	case StatusJbig2GlobalMissing:
+		return "jbig2 global missing"
+	case StatusPngError:
+		return "png error"
+	case StatusFreetypeError:
+		return "freetype error"
+	case StatusWin32GdiError:
+		return "win32 gdi error"
+	case StatusTagError:
+		return "tag error"
+	case StatusDwriteError:
+		return "dwrite error"
+	case StatusSvgFontError:
+		return "svg font error"
+	case StatusLastStatus:
+		return "last status"
+	default:
+		return "unknown error"
+	}
+}
 
 // Helper math functions
 func Sin(x float64) float64 {
