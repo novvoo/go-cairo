@@ -270,8 +270,9 @@ func (s *baseSurface) GetUserData(key *UserDataKey) unsafe.Pointer {
 	return nil
 }
 
-func (s *baseSurface) Flush() {
+func (s *baseSurface) Flush() error {
 	// Default implementation does nothing
+	return nil
 }
 
 func (s *baseSurface) MarkDirty() {
@@ -286,25 +287,26 @@ func (s *baseSurface) GetFontOptions() *FontOptions {
 	return s.fontOptions
 }
 
-	func (s *baseSurface) Finish() {
-		if s.finished {
-			return
-		}
-		s.finished = true
-		
-		// Clean up snapshots
-		for _, snapshot := range s.snapshots {
-			snapshot.Destroy()
-		}
-		s.snapshots = nil
-		
-		// Call concrete surface finish
-		s.finishConcrete()
+func (s *baseSurface) Finish() error {
+	if s.finished {
+		return nil
 	}
+	s.finished = true
 	
-	func (s *baseSurface) finishConcrete() {
-		// Default implementation does nothing
+	// Clean up snapshots
+	for _, snapshot := range s.snapshots {
+		snapshot.Destroy()
 	}
+	s.snapshots = nil
+	
+	// Call concrete surface finish
+	return s.finishConcrete()
+}
+	
+func (s *baseSurface) finishConcrete() error {
+	// Default implementation does nothing
+	return nil
+}
 
 	func (s *baseSurface) CreateSimilar(content Content, width, height int) Surface {
 		// Default implementation creates an image surface
@@ -416,18 +418,18 @@ func (s *imageSurface) GetGoImage() image.Image {
 }
 
 // WriteToPNG writes the surface to a PNG file
-func (s *imageSurface) WriteToPNG(filename string) Status {
+func (s *imageSurface) WriteToPNG(filename string) error {
 	if s.status != StatusSuccess {
-		return s.status
+		return newError(s.status, "")
 	}
 	
 	if s.goImage == nil {
-		return StatusSurfaceTypeMismatch
+		return newError(StatusSurfaceTypeMismatch, "image surface has no Go image data")
 	}
 	
 	file, err := os.Create(filename)
 	if err != nil {
-		return StatusWriteError
+		return newError(StatusWriteError, err.Error())
 	}
 	defer file.Close()
 	
@@ -440,10 +442,10 @@ func (s *imageSurface) WriteToPNG(filename string) Status {
 	
 	err = png.Encode(file, img)
 	if err != nil {
-		return StatusWriteError
+		return newError(StatusWriteError, err.Error())
 	}
 	
-	return StatusSuccess
+	return nil
 }
 
 func (s *imageSurface) convertToRGBA() *image.RGBA {

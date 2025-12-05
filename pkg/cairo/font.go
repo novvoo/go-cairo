@@ -708,6 +708,84 @@ func (s *scaledFont) GlyphExtents(glyphs []Glyph) *TextExtents {
 	return ext
 }
 
+// GlyphPath returns the path for a single glyph ID.
+func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
+	realFace, status := s.getRealFace()
+	if status != StatusSuccess {
+		return nil, newError(status, "failed to get real font face")
+	}
+
+	// Load the glyph from the font face
+	glyph, err := realFace.LoadGlyph(font.GID(glyphID))
+	if err != nil {
+		return nil, newError(StatusFontTypeMismatch, err.Error())
+	}
+
+	// Convert the font.Path to cairo.Path
+	cairoPath := &Path{
+		Status: StatusSuccess,
+		Data:   make([]PathData, 0),
+	}
+
+	// The font.Path is a sequence of draw commands (MoveTo, LineTo, CurveTo, ClosePath)
+	// We need to convert these to cairo's PathData structure.
+	// The path coordinates are in FUnits. We need to scale them by the font matrix.
+
+	// Scale factor from font matrix
+	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	unitsPerEm := float64(realFace.UnitsPerEm())
+
+	// FUnits to user space: FUnits * (scale / unitsPerEm)
+	funitToUser := func(f float64, scale float64) float64 {
+		return f * scale / unitsPerEm
+	}
+
+	// Iterate over the path segments
+	var currentX, currentY float64
+	for _, seg := range glyph.Path {
+		switch seg.Op {
+		case font.MoveTo:
+			p := seg.Points[0]
+			currentX = funitToUser(float64(p.X), sx)
+			currentY = funitToUser(float64(p.Y), sy)
+			cairoPath.Data = append(cairoPath.Data, PathData{
+				Type: PathMoveTo,
+				Points: []Point{{X: currentX, Y: currentY}},
+			})
+		case font.LineTo:
+			p := seg.Points[0]
+			currentX = funitToUser(float64(p.X), sx)
+			currentY = funitToUser(float64(p.Y), sy)
+			cairoPath.Data = append(cairoPath.Data, PathData{
+				Type: PathLineTo,
+				Points: []Point{{X: currentX, Y: currentY}},
+			})
+		case font.CurveTo:
+			p1 := seg.Points[0]
+			p2 := seg.Points[1]
+			p3 := seg.Points[2]
+			currentX = funitToUser(float64(p3.X), sx)
+			currentY = funitToUser(float64(p3.Y), sy)
+			cairoPath.Data = append(cairoPath.Data, PathData{
+				Type: PathCurveTo,
+				Points: []Point{
+					{X: funitToUser(float64(p1.X), sx), Y: funitToUser(float64(p1.Y), sy)},
+					{X: funitToUser(float64(p2.X), sx), Y: funitToUser(float64(p2.Y), sy)},
+					{X: currentX, Y: currentY},
+				},
+			})
+		case font.ClosePath:
+			cairoPath.Data = append(cairoPath.Data, PathData{
+				Type: PathClosePath,
+				Points: []Point{},
+			})
+		}
+	}
+
+	return cairoPath, nil
+}
+
 // TextToGlyphs performs text shaping to get accurate glyphs and clusters.
 func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status) {
 	realFace, status := s.getRealFace()

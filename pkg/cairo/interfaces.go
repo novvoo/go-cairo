@@ -300,9 +300,10 @@ type ScaledFont interface {
 
 	// Text measurement
 	Extents() *FontExtents
-	TextExtents(utf8 string) *TextExtents
-	GlyphExtents(glyphs []Glyph) *TextExtents
-	TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status)
+TextExtents(utf8 string) *TextExtents
+		GlyphExtents(glyphs []Glyph) *TextExtents
+		GlyphPath(glyphID uint64) (*Path, error)
+		TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status)
 }
 
 // Additional enum types for interfaces
