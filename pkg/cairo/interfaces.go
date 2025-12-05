@@ -304,6 +304,7 @@ TextExtents(utf8 string) *TextExtents
 		GlyphExtents(glyphs []Glyph) *TextExtents
 		GlyphPath(glyphID uint64) (*Path, error)
 		TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status)
+		GetGlyphs(utf8 string) (glyphs []Glyph, status Status)
 }
 
 // Additional enum types for interfaces

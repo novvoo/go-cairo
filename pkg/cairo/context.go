@@ -424,6 +424,16 @@ func (c *context) SetAntialias(antialias Antialias) error {
 		return newError(c.status, "")
 	}
 	c.gstate.antialias = antialias
+	
+	// Sync 1.18's ft-font-accuracy-new: AntialiasBest implies higher precision
+	if antialias == AntialiasBest {
+		// This is a placeholder for setting a higher precision flag in the underlying font system
+		// For draw2d, we can set a lower tolerance for path flattening
+		c.gstate.tolerance = 0.01 // A smaller tolerance for better path accuracy
+	} else if antialias == AntialiasDefault {
+		c.gstate.tolerance = 0.1 // Default tolerance
+	}
+	
 	return nil
 }
 

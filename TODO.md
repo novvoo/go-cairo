@@ -4,11 +4,20 @@ This file tracks the remaining tasks for improving the go-cairo library and achi
 
 ## High Priority
 
+- [ ] **Error Handling Uniformity:** Finalize mapping of all `Status` codes to the Go `error` interface, supporting new 1.18+ enumerations.
+- [ ] **Font Subsetting:** Implement logic for font subsetting (e.g., `cairo_scaled_font_get_glyphs`) for PDF/SVG output, including support for 1.18 color fonts.
+
 - [ ] **Surface Backend Extension:** Implement Xlib/XCB/Win32 surfaces using Go syscalls or third-party libraries (e.g., `golang.org/x/sys`). This is a major undertaking and requires platform-specific code.
 - [ ] **Script Surface:** Implement `cairo_script_surface_create` to serialize drawing operations to JSON for debugging and replay.
 - [ ] **Pixman-like Operations:** Implement pixman-like pixel operations using the `image` package to match native Cairo 1.18+ behavior.
 
 ## Medium Priority
+
+- [ ] **Build/Dependency:** Update `go.mod` to reflect `pixman >= 0.40` requirement (if CGo is used) and add cross-platform build tags.
+- [ ] **Antialiasing/Precision:** Synchronize with 1.18's `ft-font-accuracy-new` by adding precision hints to `SetAntialias` (e.g., `AntialiasBest`).
+- [ ] **Testing Coverage:** Add fuzz testing (`go test -fuzz`) and implement PNG output validation.
+- [ ] **Performance Optimization:** Implement Go mutex wrappers to simulate Cairo's spinlock optimization.
+- [ ] **Documentation/Compatibility Matrix:** Add a compatibility table to `README.md` listing supported Cairo versions.
 
 - [ ] **Filters/Blur:** Implement `CAIRO_FILTER_GAUSSIAN` using a library like `gonum/mat` for convolution.
 - [ ] **Advanced Text Layout:** Integrate `golang.org/x/image/font` more deeply to simulate FreeType and handle BiDi/RTL text.

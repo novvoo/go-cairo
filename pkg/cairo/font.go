@@ -786,6 +786,33 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 	return cairoPath, nil
 }
 
+// GetGlyphs returns the glyphs for a given text string.
+// This is a simplified version of cairo_scaled_font_get_glyphs, primarily for font subsetting.
+func (s *scaledFont) GetGlyphs(utf8 string) (glyphs []Glyph, status Status) {
+	realFace, status := s.getRealFace()
+	if status != StatusSuccess {
+		return nil, status
+	}
+
+	// 1. Shape the text
+	shaper := shaping.NewShaper(realFace)
+	output := shaper.Shape(utf8)
+
+	// 2. Convert shaped output to cairo's Glyph structures
+	glyphs = make([]Glyph, len(output.Glyphs))
+	for i, g := range output.Glyphs {
+		glyphs[i] = Glyph{
+			Index: uint64(g.ID),
+			X:     0, // Position is not relevant for subsetting
+			Y:     0,
+		}
+	}
+
+	// TODO: Integrate with color font (COLRv0/1) handling for 1.18+ compatibility.
+
+	return glyphs, StatusSuccess
+}
+
 // TextToGlyphs performs text shaping to get accurate glyphs and clusters.
 func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status) {
 	realFace, status := s.getRealFace()

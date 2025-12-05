@@ -33,6 +33,14 @@ func (e Error) Error() string {
 	return e.Status.String()
 }
 
+// Is implements the errors.Is interface, allowing comparison with other cairo.Error types.
+func (e Error) Is(target error) bool {
+	if targetErr, ok := target.(Error); ok {
+		return e.Status == targetErr.Status
+	}
+	return false
+}
+
 func newError(status Status, msg string) error {
 	if status == StatusSuccess {
 		return nil
