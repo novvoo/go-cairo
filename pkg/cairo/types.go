@@ -6,11 +6,19 @@ import (
 )
 
 // Cairo Version
-const (
-	VersionMajor = 1
-	VersionMinor = 18
-	VersionMicro = 4
-)
+	const (
+		VersionMajor = 1
+		VersionMinor = 18
+		VersionMicro = 2
+	)
+	
+	// CAIRO_VERSION_ENCODE is a helper function to encode the version number.
+	func CAIRO_VERSION_ENCODE(major, minor, micro int) int {
+		return major*10000 + minor*100 + micro
+	}
+	
+	// CAIRO_VERSION is the encoded version number.
+	const CAIRO_VERSION = CAIRO_VERSION_ENCODE(VersionMajor, VersionMinor, VersionMicro)
 
 // Bool represents cairo_bool_t
 type Bool int
@@ -120,10 +128,43 @@ const (
 	FormatRGB16565 Format = 4
 	FormatRGB30    Format = 5
 	FormatRGB96F   Format = 6
-	FormatRGBA128F Format = 7
-)
-
-// Dither represents cairo_dither_t - dithering modes
+		FormatRGBA128F Format = 7
+	)
+	
+	// SurfaceType represents cairo_surface_type_t - surface types
+	type SurfaceType int
+	
+	const (
+		SurfaceTypeImage SurfaceType = iota
+		SurfaceTypePDF
+		SurfaceTypePS
+		SurfaceTypeSVG
+		SurfaceTypeRecording
+		SurfaceTypeWin32
+		SurfaceTypeQuartz
+		SurfaceTypeXCB
+		SurfaceTypeXLib
+		SurfaceTypeGlitz
+		SurfaceTypeQuartzImage
+		SurfaceTypeScript
+		SurfaceTypeWin32Printing
+		SurfaceTypeOS2
+		SurfaceTypeVGL
+		SurfaceTypeExtension
+		SurfaceTypeDLS
+		SurfaceTypeDRM
+		SurfaceTypeTee
+		SurfaceTypeXML
+		SurfaceTypeSkia
+		SurfaceTypeSubsurface
+		SurfaceTypeCogl
+		SurfaceTypeWin32GDI
+		SurfaceTypeRecordingSurface
+		SurfaceTypeObserver
+		SurfaceTypeInvalid
+	)
+	
+	// Dither represents cairo_dither_t - dithering modes
 type Dither int
 
 const (
@@ -134,7 +175,41 @@ const (
 	DitherBest
 )
 
-// Operator represents cairo_operator_t - compositing operators
+	// Extend represents cairo_extend_t - pattern extend modes
+	type Extend int
+	
+	const (
+		ExtendNone Extend = iota
+		ExtendRepeat
+		ExtendReflect
+		ExtendPad
+	)
+	
+	// Filter represents cairo_filter_t - pattern filter modes
+	type Filter int
+	
+	const (
+		FilterFast Filter = iota
+		FilterGood
+		FilterBest
+		FilterNearest
+		FilterBilinear
+		FilterGaussian
+	)
+	
+	// PatternType represents cairo_pattern_type_t - pattern types
+	type PatternType int
+	
+	const (
+		PatternTypeSolid PatternType = iota
+		PatternTypeSurface
+		PatternTypeLinear
+		PatternTypeRadial
+		PatternTypeMesh
+		PatternTypeRasterSource
+	)
+	
+	// Operator represents cairo_operator_t - compositing operators
 type Operator int
 
 // BlendFunc defines a function that blends a source and destination color.
@@ -251,18 +326,80 @@ func (m *Matrix) InitScale(sx, sy float64) {
 	m.YY = sy
 }
 
-// InitRotate initializes matrix to rotation
-func (m *Matrix) InitRotate(radians float64) {
-	s := Sin(radians)
-	c := Cos(radians)
-
-	m.XX = c
-	m.YX = s
-	m.XY = -s
-	m.YY = c
-	m.X0 = 0.0
-	m.Y0 = 0.0
-}
+	// InitRotate initializes matrix to rotation
+	func (m *Matrix) InitRotate(radians float64) {
+		s := math.		s := math.Sin(radians)
+		c := math.Cos(radians)
+		m.XX = c
+		m.YX = s
+		m.XY = -s
+		m.YY = c
+		m.X0 = 0.0
+		m.Y0 = 0.0
+	}
+	
+	// InitSkew initializes matrix to skew (shear)
+	func (m *Matrix) InitSkew(shearX, shearY float64) {
+		m.InitIdentity()
+		m.XY = shearX // Skew along X-axis
+		m.YX = shearY // Skew along Y-axis
+	}
+	
+	// MatrixDecompose decomposes the matrix into translation, rotation, scale, and shear components.
+	// The decomposition is not unique, but this follows a common convention.
+	func MatrixDecompose(m *Matrix) (tx, ty, rotation, scaleX, scaleY, shear float64, status Status) {
+		tx = m.X0
+		ty = m.Y0
+		
+		// Calculate scale factors
+		scaleX = math.Hypot(m.XX, m.YX)
+		scaleY = math.Hypot(m.XY, m.YY)
+		
+		// Check for degenerate matrix
+		if scaleX == 0 || scaleY == 0 {
+			return tx, ty, 0, 0, 0, 0, StatusInvalidMatrix
+		}
+		
+		// Normalize components
+		nXX := m.XX / scaleX
+		nYX := m.YX / scaleX
+		nXY := m.XY / scaleY
+		nYY := m.YY / scaleY
+		
+		// Calculate rotation (from XX and YX)
+		rotation = math.Atan2(nYX, nXX)
+		
+		// Calculate shear (from dot product of normalized X and Y vectors)
+		shear = nXX*nXY + nYX*nYY
+		
+		// Adjust scaleY and nXY/nYY for shear
+		if shear != 0 {
+			// Remove shear from Y vector
+			nXY -= shear * nXX
+			nYY -= shear * nYX
+			
+			// Recalculate scaleY and normalize Y vector
+			scaleY = math.Hypot(nXY, nYY)
+			if scaleY == 0 {
+				return tx, ty, rotation, scaleX, 0, shear, StatusInvalidMatrix
+			}
+			nXY /= scaleY
+			nYY /= scaleY
+			
+			// Recalculate shear (should be close to zero now)
+			shear = nXX*nXY + nYX*nYY
+		}
+		
+		// Check for reflection (determinant sign)
+		det := nXX*nYY - nYX*nXY
+		if det < 0 {
+			// Reflection detected, usually handled by making one scale factor negative
+			scaleX = -scaleX
+			rotation = math.Atan2(m.YX/scaleX, m.XX/scaleX)
+		}
+		
+		return tx, ty, rotation, scaleX, scaleY, shear, StatusSuccess
+	}
 
 // Rectangle represents cairo_rectangle_t - floating point rectangle
 type Rectangle struct {

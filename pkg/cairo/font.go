@@ -12,8 +12,11 @@ import (
 		"golang.org/x/image/font/gofont/gobold"
 		"golang.org/x/image/font/gofont/goitalic"
 		"golang.org/x/image/font/gofont/gobolditalic"
-	"golang.org/x/image/math/fixed"
-)
+		"golang.org/x/image/math/fixed"
+	
+	"github.com/novvoo/go-cairo/pkg/cairo/cgo" // Import CGo bindings
+	"C" // Import C for CGo
+	)
 
 	var defaultFont font.Face
 	

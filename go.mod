@@ -1,6 +1,6 @@
 module go-cairo
 
-go 1.21
+go 1.18
 
 require (
 	// CGo dependencies (for future use, e.g., pixman, FreeType)

@@ -147,11 +147,161 @@ type linearGradient struct {
 	x0, y0, x1, y1 float64
 }
 
+// meshPattern implements mesh gradient patterns
+type meshPattern struct {
+	basePattern
+	patches []*MeshPatch
+	currentPatch *MeshPatch
+}
+
+// MeshPatch represents a single patch in the mesh pattern.
+type MeshPatch struct {
+	controlPoints [4]Point // 4 control points for a Coons patch
+	cornerColors  [4]Color // 4 corner colors
+}
+
+// RasterSourceAcquireFunc is the callback function to acquire the surface for a raster source pattern.
+type RasterSourceAcquireFunc func(pattern Pattern, target Surface, extents *Rectangle) Surface
+
+// RasterSourceReleaseFunc is the callback function to release the surface for a raster source pattern.
+type RasterSourceReleaseFunc func(pattern Pattern, surface Surface)
+
+// rasterSourcePattern implements raster source patterns
+type rasterSourcePattern struct {
+	basePattern
+	acquireFunc RasterSourceAcquireFunc
+	releaseFunc RasterSourceReleaseFunc
+	surface Surface // The acquired surface
+}
+
 // radialGradient implements radial gradient patterns  
 type radialGradient struct {
 	gradientPattern
 	cx0, cy0, radius0 float64
 	cx1, cy1, radius1 float64
+}
+
+// cairoGradientPatternImage implements image.Image to handle gradient extend modes.
+type cairoGradientPatternImage struct {
+	pattern *gradientPattern
+	ctm     Matrix
+}
+
+func (p *cairoGradientPatternImage) ColorModel() color.Model {
+	return color.NRGBAModel
+}
+
+func (p *cairoGradientPatternImage) Bounds() image.Rectangle {
+	// The bounds of the pattern are effectively infinite, but for draw2d
+	// we can return a large enough bound.
+	return image.Rect(-10000, -10000, 10000, 10000)
+}
+
+func (p *cairoGradientPatternImage) At(x, y int) color.Color {
+	// 1. Convert device coordinate (x, y) to pattern user space (sx, sy)
+	patMatrix := p.pattern.matrix
+	if status := MatrixInvert(&patMatrix); status != StatusSuccess {
+		return color.NRGBA{A: 0xFF} // Fallback to solid black on error
+	}
+	
+	sx, sy := MatrixTransformPoint(&patMatrix, float64(x), float64(y))
+	
+	// 2. Calculate the position 't' along the gradient vector
+	var t float64
+	
+	switch pat := p.pattern.getPattern().(type) {
+	case *linearGradient:
+		// Vector from (x0, y0) to (x1, y1)
+		dx, dy := pat.x1-pat.x0, pat.y1-pat.y0
+		lenSq := dx*dx + dy*dy
+		if lenSq == 0 {
+			return color.NRGBA{A: 0x00} // Degenerate gradient, transparent
+		}
+		// Projection of (sx - x0, sy - y0) onto (dx, dy)
+		t = ((sx-pat.x0)*dx + (sy-pat.y0)*dy) / lenSq
+	case *radialGradient:
+		// Radial gradient is complex. For now, we'll use a placeholder
+		// and assume t is calculated based on distance from center.
+		// A full implementation would require solving a quadratic equation.
+		// For now, we'll use a simplified linear interpolation between the two circles.
+		// This is a major simplification and needs a proper fix later.
+		// For a full implementation, see cairo's radial gradient code.
+		// Since draw2d does not provide a radial gradient primitive that supports extend,
+		// we must implement the sampling logic here.
+		// For now, we'll use a placeholder value.
+		t = 0.5 // Placeholder
+	default:
+		return color.NRGBA{A: 0x00} // Should not happen
+	}
+	
+	// 3. Apply Extend logic to 't'
+	switch p.pattern.extend {
+	case ExtendNone:
+		if t < 0 || t > 1 {
+			return color.NRGBA{A: 0x00} // Transparent
+		}
+	case ExtendRepeat:
+		t = t - math.Floor(t)
+	case ExtendReflect:
+		t = math.Abs(t)
+		t = t - 2*math.Floor(t/2)
+		if t > 1 {
+			t = 2 - t
+		}
+	case ExtendPad:
+		t = math.Max(0, math.Min(1, t))
+	}
+	
+	// 4. Sample color from color stops at position 't'
+	// This requires iterating over the stops and interpolating.
+	// This is a placeholder for the actual color interpolation logic.
+	// For now, return a fixed color to indicate the logic is hit.
+	
+	// Find the two stops t is between and linearly interpolate the color.
+	stops := p.pattern.stops
+	if len(stops) == 0 {
+		return color.NRGBA{A: 0x00}
+	}
+	
+	if t <= stops[0].offset {
+		r := uint8(stops[0].red * 255)
+		g := uint8(stops[0].green * 255)
+		b := uint8(stops[0].blue * 255)
+		a := uint8(stops[0].alpha * 255)
+		return color.NRGBA{R: r, G: g, B: b, A: a}
+	}
+	
+	if t >= stops[len(stops)-1].offset {
+		last := stops[len(stops)-1]
+		r := uint8(last.red * 255)
+		g := uint8(last.green * 255)
+		b := uint8(last.blue * 255)
+		a := uint8(last.alpha * 255)
+		return color.NRGBA{R: r, G: g, B: b, A: a}
+	}
+	
+	for i := 0; i < len(stops)-1; i++ {
+		stop1 := stops[i]
+		stop2 := stops[i+1]
+		
+		if t >= stop1.offset && t <= stop2.offset {
+			// Linear interpolation
+			ratio := (t - stop1.offset) / (stop2.offset - stop1.offset)
+			r := stop1.red + (stop2.red-stop1.red)*ratio
+			g := stop1.green + (stop2.green-stop1.green)*ratio
+			b := stop1.blue + (stop2.blue-stop1.blue)*ratio
+			a := stop1.alpha + (stop2.alpha-stop1.alpha)*ratio
+			
+			return color.NRGBA{
+				R: uint8(r * 255),
+				G: uint8(g * 255),
+				B: uint8(b * 255),
+				A: uint8(a * 255),
+			}
+		}
+	}
+	
+	return color.NRGBA{A: 0x00} // Should not be reached
 }
 
 // basePattern provides common pattern functionality
@@ -232,7 +382,85 @@ func NewPatternLinear(x0, y0, x1, y1 float64) Pattern {
 	return pattern
 }
 
-// NewPatternRadial creates a radial gradient pattern  
+// NewPatternMesh creates a new mesh pattern.
+func NewPatternMesh() Pattern {
+	pattern := &meshPattern{
+		basePattern: basePattern{
+			refCount: 1,
+			status: StatusSuccess,
+			patternType: PatternTypeMesh,
+			extend: ExtendNone,
+			filter: FilterFast,
+			userData: make(map[*UserDataKey]interface{}),
+		},
+		patches: make([]*MeshPatch, 0),
+	}
+	pattern.matrix.InitIdentity()
+	return pattern
+}
+
+// MeshPatternBeginPatch starts a new patch.
+func (p *meshPattern) MeshPatternBeginPatch() error {
+	if p.currentPatch != nil {
+		return newError(StatusInvalidMeshConstruction, "patch already in progress")
+	}
+	p.currentPatch = &MeshPatch{}
+	return nil
+}
+
+// MeshPatternEndPatch ends the current patch and adds it to the pattern.
+func (p *meshPattern) MeshPatternEndPatch() error {
+	if p.currentPatch == nil {
+		return newError(StatusInvalidMeshConstruction, "no patch in progress")
+	}
+	p.patches = append(p.patches, p.currentPatch)
+	p.currentPatch = nil
+	return nil
+}
+
+// MeshPatternSetControlPoint sets a control point for the current patch.
+func (p *meshPattern) MeshPatternSetControlPoint(pointNum int, x, y float64) error {
+	if p.currentPatch == nil {
+		return newError(StatusInvalidMeshConstruction, "no patch in progress")
+	}
+	if pointNum < 0 || pointNum > 3 {
+		return newError(StatusInvalidIndex, "control point index out of range (0-3)")
+	}
+	p.currentPatch.controlPoints[pointNum] = Point{X: x, Y: y}
+	return nil
+}
+
+// MeshPatternSetCornerColor sets a corner color for the current patch.
+func (p *meshPattern) MeshPatternSetCornerColor(cornerNum int, red, green, blue, alpha float64) error {
+	if p.currentPatch == nil {
+		return newError(StatusInvalidMeshConstruction, "no patch in progress")
+	}
+	if cornerNum < 0 || cornerNum > 3 {
+		return newError(StatusInvalidIndex, "corner color index out of range (0-3)")
+	}
+	p.currentPatch.cornerColors[cornerNum] = Color{R: red, G: green, B: blue, A: alpha}
+	return nil
+}
+
+// NewPatternRasterSource creates a new raster source pattern.
+func NewPatternRasterSource(acquireFunc RasterSourceAcquireFunc, releaseFunc RasterSourceReleaseFunc) Pattern {
+	pattern := &rasterSourcePattern{
+		basePattern: basePattern{
+			refCount: 1,
+			status: StatusSuccess,
+			patternType: PatternTypeRasterSource,
+			extend: ExtendNone,
+			filter: FilterFast,
+			userData: make(map[*UserDataKey]interface{}),
+		},
+		acquireFunc: acquireFunc,
+		releaseFunc: releaseFunc,
+	}
+	pattern.matrix.InitIdentity()
+	return pattern
+}
+
+// radialGradient implements radial gradient patterns  
 func NewPatternRadial(cx0, cy0, radius0, cx1, cy1, radius1 float64) Pattern {
 	pattern := &radialGradient{
 		gradientPattern: gradientPattern{
@@ -371,27 +599,45 @@ func (p *solidPattern) GetRGBA() (red, green, blue, alpha float64) {
 
 // Surface pattern implementation
 
-func (p *surfacePattern) getPattern() Pattern {
-	return p
-}
-
-func (p *surfacePattern) Reference() Pattern {
-	atomic.AddInt32(&p.refCount, 1)
-	return p
-}
-
-func (p *surfacePattern) cleanup() {
-	if p.surface != nil {
-		p.surface.Destroy()
+func (p *surfacePattern) getPatt	// Surface pattern implementation
+	
+	func (p *surfacePattern) getPattern() Pattern {
+		return p
 	}
-}
-
-func (p *surfacePattern) GetSurface() Surface {
-	return p.surface
-}
-
-// Gradient pattern implementation
-
+	
+	func (p *surfacePattern) cleanup() {
+		if p.surface != nil {
+			p.surface.Destroy()
+		}
+	}
+	
+	func (p *surfacePattern) GetSurface() Surface {
+		return p.surface.Reference()
+	}
+	
+	// Mesh pattern implementation
+	
+	func (p *meshPattern) getPattern() Pattern {
+		return p
+	}
+	
+	func (p *meshPattern) cleanup() {
+		// No special cleanup needed for mesh pattern
+	}
+	
+	// Raster Source pattern implementation
+	
+	func (p *rasterSourcePattern) getPattern() Pattern {
+		return p
+	}
+	
+	func (p *rasterSourcePattern) cleanup() {
+		if p.surface != nil && p.releaseFunc != nil {
+			p.releaseFunc(p, p.surface)
+		}
+	}
+	
+	// linearGradient implementation
 func (p *gradientPattern) AddColorStopRGB(offset, red, green, blue float64) error {
 	return p.AddColorStopRGBA(offset, red, green, blue, 1.0)
 }
