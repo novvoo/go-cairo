@@ -1,0 +1,391 @@
+package cairo
+
+import (
+	"sync/atomic"
+	"unsafe"
+)
+
+// solidPattern implements solid color patterns
+type solidPattern struct {
+	basePattern
+	red, green, blue, alpha float64
+}
+
+// surfacePattern implements surface-based patterns  
+type surfacePattern struct {
+	basePattern
+	surface Surface
+}
+
+// gradientPattern is the base for gradient patterns
+type gradientPattern struct {
+	basePattern
+	stops []gradientStop
+}
+
+type gradientStop struct {
+	offset float64
+	red, green, blue, alpha float64
+}
+
+// linearGradient implements linear gradient patterns
+type linearGradient struct {
+	gradientPattern
+	x0, y0, x1, y1 float64
+}
+
+// radialGradient implements radial gradient patterns  
+type radialGradient struct {
+	gradientPattern
+	cx0, cy0, radius0 float64
+	cx1, cy1, radius1 float64
+}
+
+// basePattern provides common pattern functionality
+type basePattern struct {
+	refCount int32
+	status   Status
+	patternType PatternType
+	matrix   Matrix
+	extend   Extend
+	filter   Filter
+	userData map[*UserDataKey]interface{}
+}
+
+// NewPatternRGB creates a solid color pattern with RGB values
+func NewPatternRGB(red, green, blue float64) Pattern {
+	return NewPatternRGBA(red, green, blue, 1.0)
+}
+
+// NewPatternRGBA creates a solid color pattern with RGBA values
+func NewPatternRGBA(red, green, blue, alpha float64) Pattern {
+	pattern := &solidPattern{
+		basePattern: basePattern{
+			refCount: 1,
+			status: StatusSuccess,
+			patternType: PatternTypeSolid,
+			extend: ExtendNone,
+			filter: FilterFast,
+			userData: make(map[*UserDataKey]interface{}),
+		},
+		red: red,
+		green: green, 
+		blue: blue,
+		alpha: alpha,
+	}
+	pattern.matrix.InitIdentity()
+	return pattern
+}
+
+// NewPatternForSurface creates a pattern from a surface
+func NewPatternForSurface(surface Surface) Pattern {
+	if surface == nil {
+		return newPatternInError(StatusNullPointer)
+	}
+	
+	pattern := &surfacePattern{
+		basePattern: basePattern{
+			refCount: 1,
+			status: StatusSuccess,
+			patternType: PatternTypeSurface,
+			extend: ExtendNone,
+			filter: FilterFast,
+			userData: make(map[*UserDataKey]interface{}),
+		},
+		surface: surface.Reference(),
+	}
+	pattern.matrix.InitIdentity()
+	return pattern
+}
+
+// NewPatternLinear creates a linear gradient pattern
+func NewPatternLinear(x0, y0, x1, y1 float64) Pattern {
+	pattern := &linearGradient{
+		gradientPattern: gradientPattern{
+			basePattern: basePattern{
+				refCount: 1,
+				status: StatusSuccess,
+				patternType: PatternTypeLinear,
+				extend: ExtendNone,
+				filter: FilterFast,
+				userData: make(map[*UserDataKey]interface{}),
+			},
+			stops: make([]gradientStop, 0),
+		},
+		x0: x0, y0: y0,
+		x1: x1, y1: y1,
+	}
+	pattern.matrix.InitIdentity()
+	return pattern
+}
+
+// NewPatternRadial creates a radial gradient pattern  
+func NewPatternRadial(cx0, cy0, radius0, cx1, cy1, radius1 float64) Pattern {
+	pattern := &radialGradient{
+		gradientPattern: gradientPattern{
+			basePattern: basePattern{
+				refCount: 1,
+				status: StatusSuccess,
+				patternType: PatternTypeRadial,
+				extend: ExtendNone,
+				filter: FilterFast,
+				userData: make(map[*UserDataKey]interface{}),
+			},
+			stops: make([]gradientStop, 0),
+		},
+		cx0: cx0, cy0: cy0, radius0: radius0,
+		cx1: cx1, cy1: cy1, radius1: radius1,
+	}
+	pattern.matrix.InitIdentity()
+	return pattern
+}
+
+func newPatternInError(status Status) Pattern {
+	pattern := &solidPattern{
+		basePattern: basePattern{
+			refCount: 1,
+			status: status,
+			patternType: PatternTypeSolid,
+			userData: make(map[*UserDataKey]interface{}),
+		},
+	}
+	return pattern
+}
+
+// Base pattern interface implementation
+
+func (p *basePattern) Reference() Pattern {
+	atomic.AddInt32(&p.refCount, 1)
+	// Return the actual pattern type, not basePattern
+	return p.getPattern()
+}
+
+func (p *basePattern) getPattern() Pattern {
+	// This is a bit of a hack - in a real implementation we'd need
+	// to store a reference to the concrete type
+	return nil // This will be overridden in concrete types
+}
+
+func (p *basePattern) Destroy() {
+	if atomic.AddInt32(&p.refCount, -1) == 0 {
+		// Clean up resources specific to pattern type
+		p.cleanup()
+	}
+}
+
+func (p *basePattern) cleanup() {
+	// Base cleanup - overridden in concrete types
+}
+
+func (p *basePattern) GetReferenceCount() int {
+	return int(atomic.LoadInt32(&p.refCount))
+}
+
+func (p *basePattern) Status() Status {
+	return p.status
+}
+
+func (p *basePattern) GetType() PatternType {
+	return p.patternType
+}
+
+func (p *basePattern) SetUserData(key *UserDataKey, userData unsafe.Pointer, destroy DestroyFunc) Status {
+	if p.status != StatusSuccess {
+		return p.status
+	}
+	
+	p.userData[key] = userData
+	// TODO: Store destroy function and call it when appropriate
+	return StatusSuccess
+}
+
+func (p *basePattern) GetUserData(key *UserDataKey) unsafe.Pointer {
+	if data, exists := p.userData[key]; exists {
+		return data.(unsafe.Pointer)
+	}
+	return nil
+}
+
+func (p *basePattern) SetMatrix(matrix *Matrix) {
+	if p.status != StatusSuccess {
+		return
+	}
+	p.matrix = *matrix
+}
+
+func (p *basePattern) GetMatrix() *Matrix {
+	matrix := &Matrix{}
+	*matrix = p.matrix
+	return matrix
+}
+
+func (p *basePattern) SetExtend(extend Extend) {
+	if p.status != StatusSuccess {
+		return
+	}
+	p.extend = extend
+}
+
+func (p *basePattern) GetExtend() Extend {
+	return p.extend
+}
+
+func (p *basePattern) SetFilter(filter Filter) {
+	if p.status != StatusSuccess {
+		return
+	}
+	p.filter = filter
+}
+
+func (p *basePattern) GetFilter() Filter {
+	return p.filter
+}
+
+// Solid pattern implementation
+
+func (p *solidPattern) getPattern() Pattern {
+	return p
+}
+
+func (p *solidPattern) Reference() Pattern {
+	atomic.AddInt32(&p.refCount, 1)
+	return p
+}
+
+func (p *solidPattern) GetRGBA() (red, green, blue, alpha float64) {
+	return p.red, p.green, p.blue, p.alpha
+}
+
+// Surface pattern implementation
+
+func (p *surfacePattern) getPattern() Pattern {
+	return p
+}
+
+func (p *surfacePattern) Reference() Pattern {
+	atomic.AddInt32(&p.refCount, 1)
+	return p
+}
+
+func (p *surfacePattern) cleanup() {
+	if p.surface != nil {
+		p.surface.Destroy()
+	}
+}
+
+func (p *surfacePattern) GetSurface() Surface {
+	return p.surface
+}
+
+// Gradient pattern implementation
+
+func (p *gradientPattern) AddColorStopRGB(offset, red, green, blue float64) {
+	p.AddColorStopRGBA(offset, red, green, blue, 1.0)
+}
+
+func (p *gradientPattern) AddColorStopRGBA(offset, red, green, blue, alpha float64) {
+	if p.status != StatusSuccess {
+		return
+	}
+	
+	if offset < 0.0 || offset > 1.0 {
+		p.status = StatusInvalidIndex
+		return
+	}
+	
+	stop := gradientStop{
+		offset: offset,
+		red: red,
+		green: green,
+		blue: blue,
+		alpha: alpha,
+	}
+	
+	// Insert in sorted order by offset
+	inserted := false
+	for i, existingStop := range p.stops {
+		if offset <= existingStop.offset {
+			// Insert at position i
+			p.stops = append(p.stops[:i], append([]gradientStop{stop}, p.stops[i:]...)...)
+			inserted = true
+			break
+		}
+	}
+	
+	if !inserted {
+		p.stops = append(p.stops, stop)
+	}
+}
+
+func (p *gradientPattern) GetColorStopCount() int {
+	return len(p.stops)
+}
+
+func (p *gradientPattern) GetColorStop(index int) (offset, red, green, blue, alpha float64, status Status) {
+	if index < 0 || index >= len(p.stops) {
+		return 0, 0, 0, 0, 0, StatusInvalidIndex
+	}
+	
+	stop := p.stops[index]
+	return stop.offset, stop.red, stop.green, stop.blue, stop.alpha, StatusSuccess
+}
+
+// Linear gradient implementation
+
+func (p *linearGradient) getPattern() Pattern {
+	return p
+}
+
+func (p *linearGradient) Reference() Pattern {
+	atomic.AddInt32(&p.refCount, 1)
+	return p
+}
+
+func (p *linearGradient) GetLinearPoints() (x0, y0, x1, y1 float64) {
+	return p.x0, p.y0, p.x1, p.y1
+}
+
+// Radial gradient implementation
+
+func (p *radialGradient) getPattern() Pattern {
+	return p
+}
+
+func (p *radialGradient) Reference() Pattern {
+	atomic.AddInt32(&p.refCount, 1)  
+	return p
+}
+
+func (p *radialGradient) GetRadialCircles() (cx0, cy0, radius0, cx1, cy1, radius1 float64) {
+	return p.cx0, p.cy0, p.radius0, p.cx1, p.cy1, p.radius1
+}
+
+// Pattern-specific interfaces for type assertions
+
+type SolidPattern interface {
+	Pattern
+	GetRGBA() (red, green, blue, alpha float64)
+}
+
+type SurfacePattern interface {
+	Pattern  
+	GetSurface() Surface
+}
+
+type GradientPattern interface {
+	Pattern
+	AddColorStopRGB(offset, red, green, blue float64)
+	AddColorStopRGBA(offset, red, green, blue, alpha float64)
+	GetColorStopCount() int
+	GetColorStop(index int) (offset, red, green, blue, alpha float64, status Status)
+}
+
+type LinearGradientPattern interface {
+	GradientPattern
+	GetLinearPoints() (x0, y0, x1, y1 float64)
+}
+
+type RadialGradientPattern interface {
+	GradientPattern
+	GetRadialCircles() (cx0, cy0, radius0, cx1, cy1, radius1 float64)
+}
