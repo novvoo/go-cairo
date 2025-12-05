@@ -8,10 +8,19 @@ import (
 	"sync/atomic"
 	"unsafe"
 	"sync"
+	"runtime" // Added for SetFinalizer
 	
 	"github.com/llgcode/draw2d/draw2dpdf"
 	"github.com/llgcode/draw2d/draw2dsvg"
 )
+
+// surfaceDataPool is a sync.Pool for recycling image surface data buffers.
+var surfaceDataPool = sync.Pool{
+	New: func() interface{} {
+		// Return nil, as we need to size the slice dynamically
+		return nil
+	},
+}
 
 // imageSurface implements image-based surfaces
 type imageSurface struct {
@@ -76,7 +85,17 @@ func NewImageSurface(format Format, width, height int) Surface {
 		return newSurfaceInError(StatusInvalidStride)
 	}
 	
-	data := make([]byte, stride*height)
+	// Try to get a buffer from the pool
+	size := stride * height
+	var data []byte
+	if v := surfaceDataPool.Get(); v != nil {
+		if buf, ok := v.([]byte); ok && cap(buf) >= size {
+			data = buf[:size]
+		}
+	}
+	if data == nil {
+		data = make([]byte, size)
+	}
 	
 	surface := &imageSurface{
 		baseSurface: baseSurface{
@@ -105,6 +124,7 @@ func NewImageSurface(format Format, width, height int) Surface {
 	// Create Go image for interoperability
 	surface.createGoImage()
 	
+	runtime.SetFinalizer(surface, (*imageSurface).Destroy)
 	return surface
 }
 
@@ -146,6 +166,7 @@ func NewImageSurfaceForData(data []byte, format Format, width, height, stride in
 	surface.deviceTransformInverse.InitIdentity()
 	surface.createGoImage()
 	
+	runtime.SetFinalizer(surface, (*imageSurface).Destroy)
 	return surface
 }
 
@@ -157,6 +178,7 @@ func newSurfaceInError(status Status) Surface {
 			userData: make(map[*UserDataKey]interface{}),
 		},
 	}
+	runtime.SetFinalizer(surface, (*imageSurface).Destroy)
 	return surface
 }
 
@@ -231,6 +253,8 @@ func (s *baseSurface) cleanup() {
 	if s.device != nil {
 		s.device.Destroy()
 	}
+	// Clear finalizer
+	runtime.SetFinalizer(s.getSurface(), nil)
 }
 
 func (s *baseSurface) GetReferenceCount() int {
@@ -384,6 +408,14 @@ func (s *baseSurface) ShowPage() {
 
 func (s *imageSurface) getSurface() Surface {
 	return s
+}
+
+func (s *imageSurface) cleanup() {
+	// Return the data buffer to the pool if it's large enough to be worth recycling
+	if cap(s.data) > 4096 { // Heuristic: only pool buffers larger than 4KB
+		surfaceDataPool.Put(s.data[:0])
+	}
+	s.baseSurface.cleanup()
 }
 
 func (s *imageSurface) Reference() Surface {

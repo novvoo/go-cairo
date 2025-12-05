@@ -56,17 +56,17 @@ type Surface interface {
 
 // Context represents cairo_t - drawing context interface
 type Context interface {
-	// Reference management
-	Reference() Context
-	Destroy()
-	GetReferenceCount() int
+		// Reference management
+		Reference() Context
+		Destroy()
+		GetReferenceCount() int
 
-	// Status
-	Status() Status
+		// Status
+		Status() Status
 
-	// Target surface
-	GetTarget() Surface
-	GetGroupTarget() Surface
+		// Target surface
+		GetTarget() Surface
+		GetGroupTarget() Surface
 
 	// User data
 	SetUserData(key *UserDataKey, userData unsafe.Pointer, destroy DestroyFunc) Status

@@ -228,10 +228,12 @@ func (c *context) GetReferenceCount() int {
 	return int(atomic.LoadInt32(&c.refCount))
 }
 
-// Status
+// Status returns the current status of the context.
 func (c *context) Status() Status {
 	return c.status
 }
+
+
 
 // Target surface
 func (c *context) GetTarget() Surface {

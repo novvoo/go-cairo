@@ -5,6 +5,13 @@ import (
 	"unsafe"
 )
 
+// Cairo Version
+const (
+	VersionMajor = 1
+	VersionMinor = 18
+	VersionMicro = 4
+)
+
 // Bool represents cairo_bool_t
 type Bool int
 
