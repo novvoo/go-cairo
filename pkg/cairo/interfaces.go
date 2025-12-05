@@ -10,128 +10,128 @@ type Surface interface {
 	Reference() Surface
 	Destroy()
 	GetReferenceCount() int
-	
+
 	// Status and properties
 	Status() Status
 	GetType() SurfaceType
 	GetContent() Content
-	
-	// Device management  
+
+	// Device management
 	GetDevice() Device
-	
+
 	// User data management
 	SetUserData(key *UserDataKey, userData unsafe.Pointer, destroy DestroyFunc) Status
 	GetUserData(key *UserDataKey) unsafe.Pointer
-	
+
 	// Surface operations
 	Flush()
 	MarkDirty()
 	MarkDirtyRectangle(x, y, width, height int)
-	
+
 	// Font options
 	GetFontOptions() *FontOptions
-	
+
 	// Finish operations
 	Finish()
-	
+
 	// Similar surface creation
 	CreateSimilar(content Content, width, height int) Surface
 	CreateSimilarImage(format Format, width, height int) Surface
 	CreateForRectangle(x, y, width, height float64) Surface
-	
+
 	// Transformations
 	SetDeviceScale(xScale, yScale float64)
 	GetDeviceScale() (xScale, yScale float64)
-	SetDeviceOffset(xOffset, yOffset float64) 
+	SetDeviceOffset(xOffset, yOffset float64)
 	GetDeviceOffset() (xOffset, yOffset float64)
-	
+
 	// Fallback resolution
 	SetFallbackResolution(xPixelsPerInch, yPixelsPerInch float64)
 	GetFallbackResolution() (xPixelsPerInch, yPixelsPerInch float64)
-	
+
 	// Copy operations
 	CopyPage()
 	ShowPage()
 }
 
-// Context represents cairo_t - drawing context interface  
+// Context represents cairo_t - drawing context interface
 type Context interface {
 	// Reference management
 	Reference() Context
 	Destroy()
 	GetReferenceCount() int
-	
+
 	// Status
 	Status() Status
-	
+
 	// Target surface
 	GetTarget() Surface
 	GetGroupTarget() Surface
-	
+
 	// User data
 	SetUserData(key *UserDataKey, userData unsafe.Pointer, destroy DestroyFunc) Status
 	GetUserData(key *UserDataKey) unsafe.Pointer
-	
+
 	// State management
 	Save()
 	Restore()
-	
+
 	// Group operations
 	PushGroup()
 	PushGroupWithContent(content Content)
 	PopGroup() Pattern
 	PopGroupToSource()
-	
+
 	// Drawing operations
 	Paint()
 	PaintWithAlpha(alpha float64)
 	Mask(pattern Pattern)
 	MaskSurface(surface Surface, surfaceX, surfaceY float64)
-	
+
 	// Path operations
 	Stroke()
 	StrokePreserve()
 	Fill()
 	FillPreserve()
-	
+
 	// Source pattern
 	SetSource(source Pattern)
 	SetSourceRGB(red, green, blue float64)
 	SetSourceRGBA(red, green, blue, alpha float64)
 	SetSourceSurface(surface Surface, x, y float64)
 	GetSource() Pattern
-	
+
 	// Drawing properties
 	SetOperator(op Operator)
 	GetOperator() Operator
-	
+
 	SetTolerance(tolerance float64)
 	GetTolerance() float64
-	
+
 	SetAntialias(antialias Antialias)
 	GetAntialias() Antialias
-	
+
 	// Fill properties
 	SetFillRule(fillRule FillRule)
 	GetFillRule() FillRule
-	
+
 	// Line properties
 	SetLineWidth(width float64)
 	GetLineWidth() float64
-	
+
 	SetLineCap(lineCap LineCap)
 	GetLineCap() LineCap
-	
+
 	SetLineJoin(lineJoin LineJoin)
 	GetLineJoin() LineJoin
-	
+
 	SetDash(dashes []float64, offset float64)
 	GetDashCount() int
 	GetDash() (dashes []float64, offset float64)
-	
+
 	SetMiterLimit(limit float64)
 	GetMiterLimit() float64
-	
+
 	// Transformations
 	Translate(tx, ty float64)
 	Scale(sx, sy float64)
@@ -140,13 +140,13 @@ type Context interface {
 	SetMatrix(matrix *Matrix)
 	GetMatrix() *Matrix
 	IdentityMatrix()
-	
+
 	// Coordinate transformations
 	UserToDevice(x, y float64) (float64, float64)
 	UserToDeviceDistance(dx, dy float64) (float64, float64)
-	DeviceToUser(x, y float64) (float64, float64)  
+	DeviceToUser(x, y float64) (float64, float64)
 	DeviceToUserDistance(dx, dy float64) (float64, float64)
-	
+
 	// Path creation
 	NewPath()
 	MoveTo(x, y float64)
@@ -161,7 +161,7 @@ type Context interface {
 	Rectangle(x, y, width, height float64)
 	ClosePath()
 	PathExtents() (x1, y1, x2, y2 float64)
-	
+
 	// Clipping
 	Clip()
 	ClipPreserve()
@@ -169,24 +169,24 @@ type Context interface {
 	InClip(x, y float64) Bool
 	ResetClip()
 	CopyClipRectangleList() *RectangleList
-	
+
 	// Point tests
 	InStroke(x, y float64) Bool
 	InFill(x, y float64) Bool
-	
+
 	// Extents
 	StrokeExtents() (x1, y1, x2, y2 float64)
 	FillExtents() (x1, y1, x2, y2 float64)
-	
+
 	// Current point
 	HasCurrentPoint() Bool
 	GetCurrentPoint() (x, y float64)
-	
+
 	// Path access
 	CopyPath() *Path
 	CopyPathFlat() *Path
 	AppendPath(path *Path)
-	
+
 	// Text operations
 	ShowText(utf8 string)
 	ShowGlyphs(glyphs []Glyph)
@@ -195,7 +195,7 @@ type Context interface {
 	GlyphPath(glyphs []Glyph)
 	TextExtents(utf8 string) *TextExtents
 	GlyphExtents(glyphs []Glyph) *TextExtents
-	
+
 	// Font operations
 	SelectFontFace(family string, slant FontSlant, weight FontWeight)
 	SetFontSize(size float64)
@@ -216,23 +216,23 @@ type Pattern interface {
 	Reference() Pattern
 	Destroy()
 	GetReferenceCount() int
-	
+
 	// Status and properties
 	Status() Status
 	GetType() PatternType
-	
+
 	// User data
 	SetUserData(key *UserDataKey, userData unsafe.Pointer, destroy DestroyFunc) Status
 	GetUserData(key *UserDataKey) unsafe.Pointer
-	
+
 	// Pattern matrix
 	SetMatrix(matrix *Matrix)
 	GetMatrix() *Matrix
-	
+
 	// Extend mode
 	SetExtend(extend Extend)
 	GetExtend() Extend
-	
+
 	// Filter mode
 	SetFilter(filter Filter)
 	GetFilter() Filter
@@ -244,15 +244,15 @@ type Device interface {
 	Reference() Device
 	Destroy()
 	GetReferenceCount() int
-	
+
 	// Status and properties
 	Status() Status
 	GetType() DeviceType
-	
+
 	// User data
 	SetUserData(key *UserDataKey, userData unsafe.Pointer, destroy DestroyFunc) Status
 	GetUserData(key *UserDataKey) unsafe.Pointer
-	
+
 	// Device operations
 	Acquire() Status
 	Release()
@@ -266,11 +266,11 @@ type FontFace interface {
 	Reference() FontFace
 	Destroy()
 	GetReferenceCount() int
-	
+
 	// Status and properties
 	Status() Status
 	GetType() FontType
-	
+
 	// User data
 	SetUserData(key *UserDataKey, userData unsafe.Pointer, destroy DestroyFunc) Status
 	GetUserData(key *UserDataKey) unsafe.Pointer
@@ -282,22 +282,22 @@ type ScaledFont interface {
 	Reference() ScaledFont
 	Destroy()
 	GetReferenceCount() int
-	
+
 	// Status and properties
 	Status() Status
 	GetType() FontType
-	
+
 	// User data
 	SetUserData(key *UserDataKey, userData unsafe.Pointer, destroy DestroyFunc) Status
 	GetUserData(key *UserDataKey) unsafe.Pointer
-	
+
 	// Font properties
 	GetFontFace() FontFace
 	GetFontMatrix() *Matrix
 	GetCTM() *Matrix
 	GetScaleMatrix() *Matrix
 	GetFontOptions() *FontOptions
-	
+
 	// Text measurement
 	Extents() *FontExtents
 	TextExtents(utf8 string) *TextExtents
@@ -401,9 +401,9 @@ const (
 
 // Path represents cairo_path_t
 type Path struct {
-	Status   Status
-	Data     []*PathData
-	NumData  int
+	Status  Status
+	Data    []*PathData
+	NumData int
 }
 
 // PathDataType represents cairo_path_data_type_t
@@ -429,13 +429,7 @@ type PathData struct {
 
 // RectangleList represents cairo_rectangle_list_t
 type RectangleList struct {
-	Status         Status
-	Rectangles     []*Rectangle
-	NumRectangles  int
-}
-
-// FontOptions represents cairo_font_options_t
-type FontOptions struct {
-	// This will be implemented as a concrete type with methods
-	// to match the interface requirements
+	Status        Status
+	Rectangles    []*Rectangle
+	NumRectangles int
 }

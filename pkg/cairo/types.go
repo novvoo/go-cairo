@@ -78,22 +78,22 @@ const (
 type Format int
 
 const (
-	FormatInvalid   Format = -1
-	FormatARGB32    Format = 0
-	FormatRGB24     Format = 1
-	FormatA8        Format = 2
-	FormatA1        Format = 3
-	FormatRGB16565  Format = 4
-	FormatRGB30     Format = 5
-	FormatRGB96F    Format = 6
-	FormatRGBA128F  Format = 7
+	FormatInvalid  Format = -1
+	FormatARGB32   Format = 0
+	FormatRGB24    Format = 1
+	FormatA8       Format = 2
+	FormatA1       Format = 3
+	FormatRGB16565 Format = 4
+	FormatRGB30    Format = 5
+	FormatRGB96F   Format = 6
+	FormatRGBA128F Format = 7
 )
 
 // Dither represents cairo_dither_t - dithering modes
 type Dither int
 
 const (
-	DitherNone    Dither = iota
+	DitherNone Dither = iota
 	DitherDefault
 	DitherFast
 	DitherGood
@@ -152,7 +152,7 @@ const (
 type FillRule int
 
 const (
-	FillRuleWinding  FillRule = iota
+	FillRuleWinding FillRule = iota
 	FillRuleEvenOdd
 )
 
@@ -160,12 +160,12 @@ const (
 type LineCap int
 
 const (
-	LineCapButt   LineCap = iota
+	LineCapButt LineCap = iota
 	LineCapRound
 	LineCapSquare
 )
 
-// LineJoin represents cairo_line_join_t - line join styles  
+// LineJoin represents cairo_line_join_t - line join styles
 type LineJoin int
 
 const (
@@ -192,9 +192,12 @@ func NewMatrix() *Matrix {
 
 // InitIdentity initializes matrix to identity
 func (m *Matrix) InitIdentity() {
-	m.XX = 1.0; m.YX = 0.0
-	m.XY = 0.0; m.YY = 1.0
-	m.X0 = 0.0; m.Y0 = 0.0
+	m.XX = 1.0
+	m.YX = 0.0
+	m.XY = 0.0
+	m.YY = 1.0
+	m.X0 = 0.0
+	m.Y0 = 0.0
 }
 
 // InitTranslate initializes matrix to translation
@@ -215,10 +218,13 @@ func (m *Matrix) InitScale(sx, sy float64) {
 func (m *Matrix) InitRotate(radians float64) {
 	s := Sin(radians)
 	c := Cos(radians)
-	
-	m.XX = c; m.YX = s
-	m.XY = -s; m.YY = c
-	m.X0 = 0.0; m.Y0 = 0.0
+
+	m.XX = c
+	m.YX = s
+	m.XY = -s
+	m.YY = c
+	m.X0 = 0.0
+	m.Y0 = 0.0
 }
 
 // Rectangle represents cairo_rectangle_t - floating point rectangle
@@ -244,7 +250,7 @@ type DestroyFunc func(data unsafe.Pointer)
 // WriteFunc represents cairo_write_func_t - write callback for surfaces
 type WriteFunc func(closure interface{}, data []byte) Status
 
-// ReadFunc represents cairo_read_func_t - read callback for surfaces  
+// ReadFunc represents cairo_read_func_t - read callback for surfaces
 type ReadFunc func(closure interface{}, data []byte) Status
 
 // TextExtents represents cairo_text_extents_t - text measurement
@@ -256,10 +262,10 @@ type TextExtents struct {
 
 // FontExtents represents cairo_font_extents_t - font metrics
 type FontExtents struct {
-	Ascent, Descent    float64
-	Height             float64
-	MaxXAdvance        float64
-	MaxYAdvance        float64
+	Ascent, Descent float64
+	Height          float64
+	MaxXAdvance     float64
+	MaxYAdvance     float64
 }
 
 // Glyph represents cairo_glyph_t - positioned glyph
@@ -285,7 +291,7 @@ const (
 type FontSlant int
 
 const (
-	FontSlantNormal  FontSlant = iota
+	FontSlantNormal FontSlant = iota
 	FontSlantItalic
 	FontSlantOblique
 )
@@ -306,3 +312,43 @@ func Sin(x float64) float64 {
 func Cos(x float64) float64 {
 	return math.Cos(x)
 }
+
+// SubpixelOrder represents cairo_subpixel_order_t - subpixel order for LCD displays
+type SubpixelOrder int
+
+const (
+	SubpixelOrderDefault SubpixelOrder = iota
+	SubpixelOrderRGB
+	SubpixelOrderBGR
+	SubpixelOrderVRGB
+	SubpixelOrderVBGR
+)
+
+// HintStyle represents cairo_hint_style_t - hinting style
+type HintStyle int
+
+const (
+	HintStyleDefault HintStyle = iota
+	HintStyleNone
+	HintStyleSlight
+	HintStyleMedium
+	HintStyleFull
+)
+
+// HintMetrics represents cairo_hint_metrics_t - hinting metrics
+type HintMetrics int
+
+const (
+	HintMetricsDefault HintMetrics = iota
+	HintMetricsOff
+	HintMetricsOn
+)
+
+// ColorMode represents cairo_color_mode_t - color mode for fonts
+type ColorMode int
+
+const (
+	ColorModeDefault ColorMode = iota
+	ColorModeNoColor
+	ColorModeColor
+)

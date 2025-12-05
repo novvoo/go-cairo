@@ -10,25 +10,25 @@ import (
 type context struct {
 	// Reference counting
 	refCount int32
-	
+
 	// Status
 	status Status
-	
+
 	// Target surface
 	target Surface
-	
+
 	// User data
 	userData map[*UserDataKey]interface{}
-	
+
 	// Graphics state stack
 	gstate *graphicsState
-	
+
 	// Path
 	path *path
-	
+
 	// Current point
 	currentPoint struct {
-		x, y float64
+		x, y     float64
 		hasPoint bool
 	}
 }
@@ -36,53 +36,53 @@ type context struct {
 // graphicsState represents the graphics state that can be saved/restored
 type graphicsState struct {
 	// Rendering properties
-	source      Pattern
-	operator    Operator
-	tolerance   float64
-	antialias   Antialias
-	fillRule    FillRule
-	
+	source    Pattern
+	operator  Operator
+	tolerance float64
+	antialias Antialias
+	fillRule  FillRule
+
 	// Line properties
-	lineWidth   float64
-	lineCap     LineCap
-	lineJoin    LineJoin
-	miterLimit  float64
-	dash        []float64
-	dashOffset  float64
-	
+	lineWidth  float64
+	lineCap    LineCap
+	lineJoin   LineJoin
+	miterLimit float64
+	dash       []float64
+	dashOffset float64
+
 	// Transformation matrix
-	matrix      Matrix
-	
+	matrix Matrix
+
 	// Font properties
 	fontFace    FontFace
 	fontMatrix  Matrix
 	fontOptions *FontOptions
 	scaledFont  ScaledFont
-	
+
 	// Clip region
-	clip        *clipRegion
-	
+	clip *clipRegion
+
 	// Previous state in stack
-	next        *graphicsState
+	next *graphicsState
 }
 
 // clipRegion represents clipping information
 type clipRegion struct {
 	// Clipping path
-	path         *path
-	fillRule     FillRule
-	tolerance    float64
-	antialias    Antialias
-	
-	// Previous clip in stack  
-	prev         *clipRegion
+	path      *path
+	fillRule  FillRule
+	tolerance float64
+	antialias Antialias
+
+	// Previous clip in stack
+	prev *clipRegion
 }
 
 // path represents the current path
 type path struct {
 	// Path data
-	data      []pathOp
-	
+	data []pathOp
+
 	// Current subpath starting point
 	subpathStartX, subpathStartY float64
 }
@@ -102,7 +102,7 @@ func NewContext(target Surface) Context {
 	if target == nil {
 		return newContextInError(StatusNullPointer)
 	}
-	
+
 	ctx := &context{
 		refCount: 1,
 		target:   target.Reference(),
@@ -110,7 +110,7 @@ func NewContext(target Surface) Context {
 		gstate:   newGraphicsState(),
 		path:     &path{data: make([]pathOp, 0)},
 	}
-	
+
 	// Initialize default state
 	ctx.gstate.source = NewPatternRGB(0, 0, 0) // Black
 	ctx.gstate.operator = OperatorOver
@@ -122,7 +122,7 @@ func NewContext(target Surface) Context {
 	ctx.gstate.lineJoin = LineJoinMiter
 	ctx.gstate.miterLimit = 10.0
 	ctx.gstate.matrix.InitIdentity()
-	
+
 	return ctx
 }
 
@@ -138,7 +138,7 @@ func newContextInError(status Status) Context {
 func newGraphicsState() *graphicsState {
 	return &graphicsState{
 		fontOptions: &FontOptions{},
-		fontMatrix: Matrix{XX: 1, YY: 1}, // Identity matrix
+		fontMatrix:  Matrix{XX: 1, YY: 1}, // Identity matrix
 	}
 }
 
@@ -153,7 +153,7 @@ func (c *context) Destroy() {
 		if c.target != nil {
 			c.target.Destroy()
 		}
-		
+
 		// Clean up graphics state stack
 		for c.gstate != nil {
 			if c.gstate.source != nil {
@@ -194,7 +194,7 @@ func (c *context) SetUserData(key *UserDataKey, userData unsafe.Pointer, destroy
 	if c.status != StatusSuccess {
 		return c.status
 	}
-	
+
 	c.userData[key] = userData
 	// TODO: Store destroy function and call it when appropriate
 	return StatusSuccess
@@ -212,7 +212,7 @@ func (c *context) Save() {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	// Create a copy of current state
 	newState := &graphicsState{
 		source:      c.gstate.source.Reference(),
@@ -229,14 +229,14 @@ func (c *context) Save() {
 		fontOptions: c.gstate.fontOptions, // TODO: Copy font options
 		next:        c.gstate,
 	}
-	
+
 	// Copy dash array
 	if len(c.gstate.dash) > 0 {
 		newState.dash = make([]float64, len(c.gstate.dash))
 		copy(newState.dash, c.gstate.dash)
 	}
 	newState.dashOffset = c.gstate.dashOffset
-	
+
 	// Reference font objects
 	if c.gstate.fontFace != nil {
 		newState.fontFace = c.gstate.fontFace.Reference()
@@ -244,7 +244,7 @@ func (c *context) Save() {
 	if c.gstate.scaledFont != nil {
 		newState.scaledFont = c.gstate.scaledFont.Reference()
 	}
-	
+
 	c.gstate = newState
 }
 
@@ -252,12 +252,12 @@ func (c *context) Restore() {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	if c.gstate.next == nil {
 		c.status = StatusInvalidRestore
 		return
 	}
-	
+
 	// Release current state resources
 	if c.gstate.source != nil {
 		c.gstate.source.Destroy()
@@ -268,7 +268,7 @@ func (c *context) Restore() {
 	if c.gstate.scaledFont != nil {
 		c.gstate.scaledFont.Destroy()
 	}
-	
+
 	// Restore previous state
 	oldState := c.gstate
 	c.gstate = oldState.next
@@ -280,7 +280,7 @@ func (c *context) SetSource(source Pattern) {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	if c.gstate.source != nil {
 		c.gstate.source.Destroy()
 	}
@@ -397,7 +397,7 @@ func (c *context) SetDash(dashes []float64, offset float64) {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	c.gstate.dash = make([]float64, len(dashes))
 	copy(c.gstate.dash, dashes)
 	c.gstate.dashOffset = offset
@@ -430,7 +430,7 @@ func (c *context) Translate(tx, ty float64) {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	matrix := NewMatrix()
 	matrix.InitTranslate(tx, ty)
 	c.Transform(matrix)
@@ -440,7 +440,7 @@ func (c *context) Scale(sx, sy float64) {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	matrix := NewMatrix()
 	matrix.InitScale(sx, sy)
 	c.Transform(matrix)
@@ -450,7 +450,7 @@ func (c *context) Rotate(angle float64) {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	matrix := NewMatrix()
 	matrix.InitRotate(angle)
 	c.Transform(matrix)
@@ -460,7 +460,7 @@ func (c *context) Transform(matrix *Matrix) {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	// Multiply current matrix with the transformation matrix
 	MatrixMultiply(&c.gstate.matrix, matrix, &c.gstate.matrix)
 }
@@ -530,7 +530,7 @@ func (c *context) NewPath() {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	c.path.data = c.path.data[:0]
 	c.currentPoint.hasPoint = false
 }
@@ -539,7 +539,7 @@ func (c *context) MoveTo(x, y float64) {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	op := pathOp{
 		op:     PathMoveTo,
 		points: []point{{x, y}},
@@ -561,12 +561,12 @@ func (c *context) LineTo(x, y float64) {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	if !c.currentPoint.hasPoint {
 		c.MoveTo(x, y)
 		return
 	}
-	
+
 	op := pathOp{
 		op:     PathLineTo,
 		points: []point{{x, y}},
@@ -580,11 +580,11 @@ func (c *context) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	if !c.currentPoint.hasPoint {
 		c.MoveTo(x1, y1)
 	}
-	
+
 	op := pathOp{
 		op:     PathCurveTo,
 		points: []point{{x1, y1}, {x2, y2}, {x3, y3}},
@@ -598,11 +598,11 @@ func (c *context) ClosePath() {
 	if c.status != StatusSuccess {
 		return
 	}
-	
+
 	if len(c.path.data) == 0 {
 		return
 	}
-	
+
 	op := pathOp{
 		op:     PathClosePath,
 		points: []point{},
@@ -612,30 +612,242 @@ func (c *context) ClosePath() {
 	c.currentPoint.y = c.path.subpathStartY
 }
 
-// Placeholder implementations for remaining methods
-// (These would need full implementations in a complete version)
+// Group operations
+func (c *context) PushGroup() {
+	if c.status != StatusSuccess {
+		return
+	}
+	// TODO: Implement proper group operations
+}
 
-func (c *context) PushGroup()                      { /* TODO */ }
-func (c *context) PushGroupWithContent(Content)   { /* TODO */ }
-func (c *context) PopGroup() Pattern              { return nil }
-func (c *context) PopGroupToSource()              { /* TODO */ }
+func (c *context) PushGroupWithContent(content Content) {
+	if c.status != StatusSuccess {
+		return
+	}
+	// TODO: Implement proper group operations with content
+}
 
-func (c *context) Paint()                         { /* TODO */ }
-func (c *context) PaintWithAlpha(float64)         { /* TODO */ }
-func (c *context) Mask(Pattern)                   { /* TODO */ }
-func (c *context) MaskSurface(Surface, float64, float64) { /* TODO */ }
+func (c *context) PopGroup() Pattern {
+	if c.status != StatusSuccess {
+		return nil
+	}
+	// TODO: Implement proper group operations
+	return nil
+}
 
-func (c *context) Stroke()                        { /* TODO */ }
-func (c *context) StrokePreserve()                { /* TODO */ }
-func (c *context) Fill()                          { /* TODO */ }
-func (c *context) FillPreserve()                  { /* TODO */ }
+func (c *context) PopGroupToSource() {
+	if c.status != StatusSuccess {
+		return
+	}
+	// TODO: Implement proper group operations
+}
 
+// Drawing operations
+func (c *context) Paint() {
+	if c.status != StatusSuccess {
+		return
+	}
+	// TODO: Implement paint operation
+}
+
+func (c *context) PaintWithAlpha(alpha float64) {
+	if c.status != StatusSuccess {
+		return
+	}
+	// Save current source
+	oldSource := c.gstate.source
+
+	// Create new source with alpha
+	// TODO: Implement proper alpha blending
+
+	// Restore source
+	c.gstate.source = oldSource
+	if oldSource != nil {
+		oldSource.Destroy()
+	}
+}
+
+func (c *context) Mask(pattern Pattern) {
+	if c.status != StatusSuccess {
+		return
+	}
+	// TODO: Implement mask operation
+}
+
+func (c *context) MaskSurface(surface Surface, surfaceX, surfaceY float64) {
+	if c.status != StatusSuccess {
+		return
+	}
+	// Create pattern from surface
+	pattern := NewPatternForSurface(surface)
+	matrix := NewMatrix()
+	matrix.InitTranslate(-surfaceX, -surfaceY)
+	pattern.SetMatrix(matrix)
+
+	// Apply mask
+	c.Mask(pattern)
+
+	// Clean up
+	pattern.Destroy()
+}
+
+// Path operations
+func (c *context) Stroke() {
+	if c.status != StatusSuccess {
+		return
+	}
+	// TODO: Implement stroke operation
+	c.NewPath() // Clear path after stroke
+}
+
+func (c *context) StrokePreserve() {
+	if c.status != StatusSuccess {
+		return
+	}
+	// TODO: Implement stroke operation without clearing path
+}
+
+func (c *context) Fill() {
+	if c.status != StatusSuccess {
+		return
+	}
+	// TODO: Implement fill operation
+	c.NewPath() // Clear path after fill
+}
+
+func (c *context) FillPreserve() {
+	if c.status != StatusSuccess {
+		return
+	}
+	// TODO: Implement fill operation without clearing path
+}
+
+// Arc implementation using Bezier curves
 func (c *context) Arc(xc, yc, radius, angle1, angle2 float64) {
-	// TODO: Implement arc drawing with line segments or bezier curves
+	if c.status != StatusSuccess {
+		return
+	}
+
+	// Handle degenerate cases
+	if radius <= 0 {
+		c.LineTo(xc, yc)
+		return
+	}
+
+	// Normalize angles
+	for angle2 < angle1 {
+		angle2 += 2 * math.Pi
+	}
+
+	// If angles are equal, draw nothing
+	if angle2 == angle1 {
+		return
+	}
+
+	// Calculate number of segments needed for smooth curve
+	dAngle := angle2 - angle1
+	segments := int(math.Ceil(math.Abs(dAngle) / (math.Pi / 2)))
+
+	// Start point
+	x1 := xc + radius*math.Cos(angle1)
+	y1 := yc + radius*math.Sin(angle1)
+
+	// If no current point, move to start
+	if !c.currentPoint.hasPoint {
+		c.MoveTo(x1, y1)
+	} else {
+		// Otherwise line to start
+		c.LineTo(x1, y1)
+	}
+
+	// Draw segments
+	for i := 1; i <= segments; i++ {
+		a1 := angle1 + float64(i-1)*dAngle/float64(segments)
+		a2 := angle1 + float64(i)*dAngle/float64(segments)
+
+		// Calculate control points for Bezier curve
+		ca := math.Cos(a1)
+		sa := math.Sin(a1)
+		cb := math.Cos(a2)
+		sb := math.Sin(a2)
+
+		// Calculate Bezier control points
+		// Using approximation for circular arc with Bezier curves
+		d := math.Tan((a2 - a1) / 4)
+
+		x2 := xc + radius*(ca-d*sa)
+		y2 := yc + radius*(sa+d*ca)
+		x3 := xc + radius*(cb+d*sb)
+		y3 := yc + radius*(sb-d*cb)
+		x4 := xc + radius*cb
+		y4 := yc + radius*sb
+
+		// Add Bezier curve
+		c.CurveTo(x2, y2, x3, y3, x4, y4)
+	}
 }
 
 func (c *context) ArcNegative(xc, yc, radius, angle1, angle2 float64) {
-	// TODO: Implement negative arc
+	if c.status != StatusSuccess {
+		return
+	}
+
+	// Handle degenerate cases
+	if radius <= 0 {
+		c.LineTo(xc, yc)
+		return
+	}
+
+	// Normalize angles (negative direction)
+	for angle2 > angle1 {
+		angle2 -= 2 * math.Pi
+	}
+
+	// If angles are equal, draw nothing
+	if angle2 == angle1 {
+		return
+	}
+
+	// Calculate number of segments needed for smooth curve
+	dAngle := angle2 - angle1
+	segments := int(math.Ceil(math.Abs(dAngle) / (math.Pi / 2)))
+
+	// Start point
+	x1 := xc + radius*math.Cos(angle1)
+	y1 := yc + radius*math.Sin(angle1)
+
+	// If no current point, move to start
+	if !c.currentPoint.hasPoint {
+		c.MoveTo(x1, y1)
+	} else {
+		// Otherwise line to start
+		c.LineTo(x1, y1)
+	}
+
+	// Draw segments
+	for i := 1; i <= segments; i++ {
+		a1 := angle1 + float64(i-1)*dAngle/float64(segments)
+		a2 := angle1 + float64(i)*dAngle/float64(segments)
+
+		// Calculate control points for Bezier curve
+		ca := math.Cos(a1)
+		sa := math.Sin(a1)
+		cb := math.Cos(a2)
+		sb := math.Sin(a2)
+
+		// Calculate Bezier control points (negative direction)
+		d := math.Tan((a2 - a1) / 4)
+
+		x2 := xc + radius*(ca+d*sa)
+		y2 := yc + radius*(sa-d*ca)
+		x3 := xc + radius*(cb-d*sb)
+		y3 := yc + radius*(sb+d*cb)
+		x4 := xc + radius*cb
+		y4 := yc + radius*sb
+
+		// Add Bezier curve
+		c.CurveTo(x2, y2, x3, y3, x4, y4)
+	}
 }
 
 func (c *context) RelMoveTo(dx, dy float64) {
@@ -675,38 +887,38 @@ func (c *context) Rectangle(x, y, width, height float64) {
 }
 
 // More placeholder implementations
-func (c *context) PathExtents() (x1, y1, x2, y2 float64)                     { return 0, 0, 0, 0 }
-func (c *context) Clip()                                                     { /* TODO */ }
-func (c *context) ClipPreserve()                                             { /* TODO */ }
-func (c *context) ClipExtents() (x1, y1, x2, y2 float64)                    { return 0, 0, 0, 0 }
-func (c *context) InClip(x, y float64) Bool                                  { return False }
-func (c *context) ResetClip()                                                { /* TODO */ }
-func (c *context) CopyClipRectangleList() *RectangleList                     { return nil }
-func (c *context) InStroke(x, y float64) Bool                                { return False }
-func (c *context) InFill(x, y float64) Bool                                  { return False }
-func (c *context) StrokeExtents() (x1, y1, x2, y2 float64)                  { return 0, 0, 0, 0 }
-func (c *context) FillExtents() (x1, y1, x2, y2 float64)                    { return 0, 0, 0, 0 }
-func (c *context) CopyPath() *Path                                           { return nil }
-func (c *context) CopyPathFlat() *Path                                       { return nil }
-func (c *context) AppendPath(path *Path)                                     { /* TODO */ }
-func (c *context) ShowText(utf8 string)                                      { /* TODO */ }
-func (c *context) ShowGlyphs(glyphs []Glyph)                                 { /* TODO */ }
-func (c *context) ShowTextGlyphs(string, []Glyph, []TextCluster, TextClusterFlags) { /* TODO */ }
-func (c *context) TextPath(utf8 string)                                      { /* TODO */ }
-func (c *context) GlyphPath(glyphs []Glyph)                                  { /* TODO */ }
-func (c *context) TextExtents(utf8 string) *TextExtents                      { return nil }
-func (c *context) GlyphExtents(glyphs []Glyph) *TextExtents                  { return nil }
+func (c *context) PathExtents() (x1, y1, x2, y2 float64)                            { return 0, 0, 0, 0 }
+func (c *context) Clip()                                                            { /* TODO */ }
+func (c *context) ClipPreserve()                                                    { /* TODO */ }
+func (c *context) ClipExtents() (x1, y1, x2, y2 float64)                            { return 0, 0, 0, 0 }
+func (c *context) InClip(x, y float64) Bool                                         { return False }
+func (c *context) ResetClip()                                                       { /* TODO */ }
+func (c *context) CopyClipRectangleList() *RectangleList                            { return nil }
+func (c *context) InStroke(x, y float64) Bool                                       { return False }
+func (c *context) InFill(x, y float64) Bool                                         { return False }
+func (c *context) StrokeExtents() (x1, y1, x2, y2 float64)                          { return 0, 0, 0, 0 }
+func (c *context) FillExtents() (x1, y1, x2, y2 float64)                            { return 0, 0, 0, 0 }
+func (c *context) CopyPath() *Path                                                  { return nil }
+func (c *context) CopyPathFlat() *Path                                              { return nil }
+func (c *context) AppendPath(path *Path)                                            { /* TODO */ }
+func (c *context) ShowText(utf8 string)                                             { /* TODO */ }
+func (c *context) ShowGlyphs(glyphs []Glyph)                                        { /* TODO */ }
+func (c *context) ShowTextGlyphs(string, []Glyph, []TextCluster, TextClusterFlags)  { /* TODO */ }
+func (c *context) TextPath(utf8 string)                                             { /* TODO */ }
+func (c *context) GlyphPath(glyphs []Glyph)                                         { /* TODO */ }
+func (c *context) TextExtents(utf8 string) *TextExtents                             { return nil }
+func (c *context) GlyphExtents(glyphs []Glyph) *TextExtents                         { return nil }
 func (c *context) SelectFontFace(family string, slant FontSlant, weight FontWeight) { /* TODO */ }
-func (c *context) SetFontSize(size float64)                                  { /* TODO */ }
-func (c *context) SetFontMatrix(matrix *Matrix)                              { c.gstate.fontMatrix = *matrix }
-func (c *context) GetFontMatrix() *Matrix                                    { m := c.gstate.fontMatrix; return &m }
-func (c *context) SetFontOptions(options *FontOptions)                       { c.gstate.fontOptions = options }
-func (c *context) GetFontOptions() *FontOptions                              { return c.gstate.fontOptions }
-func (c *context) SetFontFace(fontFace FontFace)                             { c.gstate.fontFace = fontFace }
-func (c *context) GetFontFace() FontFace                                     { return c.gstate.fontFace }
-func (c *context) SetScaledFont(scaledFont ScaledFont)                       { c.gstate.scaledFont = scaledFont }
-func (c *context) GetScaledFont() ScaledFont                                 { return c.gstate.scaledFont }
-func (c *context) FontExtents() *FontExtents                                 { return nil }
+func (c *context) SetFontSize(size float64)                                         { /* TODO */ }
+func (c *context) SetFontMatrix(matrix *Matrix)                                     { c.gstate.fontMatrix = *matrix }
+func (c *context) GetFontMatrix() *Matrix                                           { m := c.gstate.fontMatrix; return &m }
+func (c *context) SetFontOptions(options *FontOptions)                              { c.gstate.fontOptions = options }
+func (c *context) GetFontOptions() *FontOptions                                     { return c.gstate.fontOptions }
+func (c *context) SetFontFace(fontFace FontFace)                                    { c.gstate.fontFace = fontFace }
+func (c *context) GetFontFace() FontFace                                            { return c.gstate.fontFace }
+func (c *context) SetScaledFont(scaledFont ScaledFont)                              { c.gstate.scaledFont = scaledFont }
+func (c *context) GetScaledFont() ScaledFont                                        { return c.gstate.scaledFont }
+func (c *context) FontExtents() *FontExtents                                        { return nil }
 
 // Helper functions for matrix operations
 
@@ -718,7 +930,7 @@ func MatrixMultiply(result, a, b *Matrix) {
 	yy := a.XY*b.YX + a.YY*b.YY
 	x0 := a.X0*b.XX + a.Y0*b.XY + b.X0
 	y0 := a.X0*b.YX + a.Y0*b.YY + b.Y0
-	
+
 	result.XX = xx
 	result.YX = yx
 	result.XY = xy
@@ -744,26 +956,26 @@ func MatrixTransformDistance(matrix *Matrix, dx, dy float64) (float64, float64) 
 // MatrixInvert inverts a matrix
 func MatrixInvert(matrix *Matrix) Status {
 	det := matrix.XX*matrix.YY - matrix.YX*matrix.XY
-	
+
 	if math.Abs(det) < 1e-10 {
 		return StatusInvalidMatrix
 	}
-	
+
 	invDet := 1.0 / det
-	
+
 	xx := matrix.YY * invDet
 	yx := -matrix.YX * invDet
 	xy := -matrix.XY * invDet
 	yy := matrix.XX * invDet
 	x0 := (matrix.XY*matrix.Y0 - matrix.YY*matrix.X0) * invDet
 	y0 := (matrix.YX*matrix.X0 - matrix.XX*matrix.Y0) * invDet
-	
+
 	matrix.XX = xx
 	matrix.YX = yx
 	matrix.XY = xy
 	matrix.YY = yy
 	matrix.X0 = x0
 	matrix.Y0 = y0
-	
+
 	return StatusSuccess
 }
