@@ -24,7 +24,7 @@ type Surface interface {
 	GetUserData(key *UserDataKey) unsafe.Pointer
 
 	// Surface operations
-	Flush()
+	Flush() error
 	MarkDirty()
 	MarkDirtyRectangle(x, y, width, height int)
 
@@ -32,7 +32,7 @@ type Surface interface {
 	GetFontOptions() *FontOptions
 
 	// Finish operations
-	Finish()
+	Finish() error
 
 	// Similar surface creation
 	CreateSimilar(content Content, width, height int) Surface
@@ -73,8 +73,8 @@ type Context interface {
 	GetUserData(key *UserDataKey) unsafe.Pointer
 
 	// State management
-	Save()
-	Restore()
+	Save() error
+	Restore() error
 
 	// Group operations
 	PushGroup()
@@ -83,16 +83,16 @@ type Context interface {
 	PopGroupToSource()
 
 	// Drawing operations
-	Paint()
-	PaintWithAlpha(alpha float64)
+	Paint() error
+	PaintWithAlpha(alpha float64) error
 	Mask(pattern Pattern)
 	MaskSurface(surface Surface, surfaceX, surfaceY float64)
 
 	// Path operations
-	Stroke()
-	StrokePreserve()
-	Fill()
-	FillPreserve()
+	Stroke() error
+	StrokePreserve() error
+	Fill() error
+	FillPreserve() error
 
 	// Source pattern
 	SetSource(source Pattern)
@@ -256,8 +256,8 @@ type Device interface {
 	// Device operations
 	Acquire() Status
 	Release()
-	Flush()
-	Finish()
+	Flush() error
+	Finish() error
 }
 
 // FontFace represents cairo_font_face_t - font face interface

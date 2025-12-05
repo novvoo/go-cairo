@@ -80,15 +80,19 @@ func (p *cairoSurfacePatternImage) At(x, y int) color.Color {
 			return color.NRGBA{A: 0x00} // Transparent
 		}
 		finalX, finalY = sx, sy
-	case ExtendRepeat:
-		finalX = math.Mod(sx, srcW)
-		if finalX < 0 {
-			finalX += srcW
-		}
-		finalY = math.Mod(sy, srcH)
-		if finalY < 0 {
-			finalY += srcH
-		}
+		case ExtendRepeat:
+			// Cairo's repeat is equivalent to Go's math.Mod, but we must handle negative numbers correctly.
+			// The current implementation is correct for Go's math.Mod for positive numbers,
+			// and the subsequent 'if finalX < 0' handles the negative case.
+			// No change needed for the logic, but adding a comment for clarity.
+			finalX = math.Mod(sx, srcW)
+			if finalX < 0 {
+				finalX += srcW
+			}
+			finalY = math.Mod(sy, srcH)
+			if finalY < 0 {
+				finalY += srcH
+			}
 	case ExtendReflect:
 		// Reflect logic: 0..W, W..0, 0..W, ...
 		finalX = math.Mod(sx, 2*srcW)
@@ -388,19 +392,22 @@ func (p *surfacePattern) GetSurface() Surface {
 
 // Gradient pattern implementation
 
-func (p *gradientPattern) AddColorStopRGB(offset, red, green, blue float64) {
-	p.AddColorStopRGBA(offset, red, green, blue, 1.0)
+func (p *gradientPattern) AddColorStopRGB(offset, red, green, blue float64) error {
+	return p.AddColorStopRGBA(offset, red, green, blue, 1.0)
 }
 
-func (p *gradientPattern) AddColorStopRGBA(offset, red, green, blue, alpha float64) {
+func (p *gradientPattern) AddColorStopRGBA(offset, red, green, blue, alpha float64) error {
 	if p.status != StatusSuccess {
-		return
+		return newError(p.status, "")
 	}
 	
 	if offset < 0.0 || offset > 1.0 {
 		p.status = StatusInvalidIndex
-		return
+		return newError(p.status, "offset must be between 0.0 and 1.0")
 	}
+	
+	// TODO: Add support for HSV interpolation as suggested in the document.
+	// This would require a separate function or flag to determine the interpolation mode.
 	
 	stop := gradientStop{
 		offset: offset,
@@ -421,10 +428,11 @@ func (p *gradientPattern) AddColorStopRGBA(offset, red, green, blue, alpha float
 		}
 	}
 	
-	if !inserted {
-		p.stops = append(p.stops, stop)
+		if !inserted {
+			p.stops = append(p.stops, stop)
+		}
+		return nil
 	}
-}
 
 func (p *gradientPattern) GetColorStopCount() int {
 	return len(p.stops)

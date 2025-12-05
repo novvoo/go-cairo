@@ -350,34 +350,37 @@ func (c *context) Restore() {
 }
 
 // Source pattern
-func (c *context) SetSource(source Pattern) {
+func (c *context) SetSource(source Pattern) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	if c.gstate.source != nil {
 		c.gstate.source.Destroy()
 	}
 	c.gstate.source = source.Reference()
+	return nil
 }
 
-func (c *context) SetSourceRGB(red, green, blue float64) {
-	c.SetSourceRGBA(red, green, blue, 1.0)
+func (c *context) SetSourceRGB(red, green, blue float64) error {
+	return c.SetSourceRGBA(red, green, blue, 1.0)
 }
 
-func (c *context) SetSourceRGBA(red, green, blue, alpha float64) {
+func (c *context) SetSourceRGBA(red, green, blue, alpha float64) error {
 	pattern := NewPatternRGBA(red, green, blue, alpha)
-	c.SetSource(pattern)
+	err := c.SetSource(pattern)
 	pattern.Destroy()
+	return err
 }
 
-func (c *context) SetSourceSurface(surface Surface, x, y float64) {
+func (c *context) SetSourceSurface(surface Surface, x, y float64) error {
 	pattern := NewPatternForSurface(surface)
 	matrix := NewMatrix()
 	matrix.InitTranslate(-x, -y)
 	pattern.SetMatrix(matrix)
-	c.SetSource(pattern)
+	err := c.SetSource(pattern)
 	pattern.Destroy()
+	return err
 }
 
 func (c *context) GetSource() Pattern {
@@ -388,33 +391,36 @@ func (c *context) GetSource() Pattern {
 }
 
 // Drawing properties
-func (c *context) SetOperator(op Operator) {
+func (c *context) SetOperator(op Operator) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 	c.gstate.operator = op
+	return nil
 }
 
 func (c *context) GetOperator() Operator {
 	return c.gstate.operator
 }
 
-func (c *context) SetTolerance(tolerance float64) {
+func (c *context) SetTolerance(tolerance float64) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 	c.gstate.tolerance = tolerance
+	return nil
 }
 
 func (c *context) GetTolerance() float64 {
 	return c.gstate.tolerance
 }
 
-func (c *context) SetAntialias(antialias Antialias) {
+func (c *context) SetAntialias(antialias Antialias) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 	c.gstate.antialias = antialias
+	return nil
 }
 
 func (c *context) GetAntialias() Antialias {
@@ -422,11 +428,12 @@ func (c *context) GetAntialias() Antialias {
 }
 
 // Fill properties
-func (c *context) SetFillRule(fillRule FillRule) {
+func (c *context) SetFillRule(fillRule FillRule) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 	c.gstate.fillRule = fillRule
+	return nil
 }
 
 func (c *context) GetFillRule() FillRule {
@@ -434,47 +441,51 @@ func (c *context) GetFillRule() FillRule {
 }
 
 // Line properties
-func (c *context) SetLineWidth(width float64) {
+func (c *context) SetLineWidth(width float64) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 	c.gstate.lineWidth = width
+	return nil
 }
 
 func (c *context) GetLineWidth() float64 {
 	return c.gstate.lineWidth
 }
 
-func (c *context) SetLineCap(lineCap LineCap) {
+func (c *context) SetLineCap(lineCap LineCap) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 	c.gstate.lineCap = lineCap
+	return nil
 }
 
 func (c *context) GetLineCap() LineCap {
 	return c.gstate.lineCap
 }
 
-func (c *context) SetLineJoin(lineJoin LineJoin) {
+func (c *context) SetLineJoin(lineJoin LineJoin) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 	c.gstate.lineJoin = lineJoin
+	return nil
 }
 
 func (c *context) GetLineJoin() LineJoin {
 	return c.gstate.lineJoin
 }
 
-func (c *context) SetDash(dashes []float64, offset float64) {
+func (c *context) SetDash(dashes []float64, offset float64) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	c.gstate.dash = make([]float64, len(dashes))
 	copy(c.gstate.dash, dashes)
 	c.gstate.dashOffset = offset
+	return nil
 }
 
 func (c *context) GetDashCount() int {
@@ -488,11 +499,12 @@ func (c *context) GetDash() (dashes []float64, offset float64) {
 	return
 }
 
-func (c *context) SetMiterLimit(limit float64) {
+func (c *context) SetMiterLimit(limit float64) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 	c.gstate.miterLimit = limit
+	return nil
 }
 
 func (c *context) GetMiterLimit() float64 {
@@ -500,50 +512,52 @@ func (c *context) GetMiterLimit() float64 {
 }
 
 // Transformations
-func (c *context) Translate(tx, ty float64) {
+func (c *context) Translate(tx, ty float64) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	matrix := NewMatrix()
 	matrix.InitTranslate(tx, ty)
-	c.Transform(matrix)
+	return c.Transform(matrix)
 }
 
-func (c *context) Scale(sx, sy float64) {
+func (c *context) Scale(sx, sy float64) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	matrix := NewMatrix()
 	matrix.InitScale(sx, sy)
-	c.Transform(matrix)
+	return c.Transform(matrix)
 }
 
-func (c *context) Rotate(angle float64) {
+func (c *context) Rotate(angle float64) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	matrix := NewMatrix()
 	matrix.InitRotate(angle)
-	c.Transform(matrix)
+	return c.Transform(matrix)
 }
 
-func (c *context) Transform(matrix *Matrix) {
+func (c *context) Transform(matrix *Matrix) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	// Multiply current matrix with the transformation matrix
 	MatrixMultiply(&c.gstate.matrix, matrix, &c.gstate.matrix)
+	return nil
 }
 
-func (c *context) SetMatrix(matrix *Matrix) {
+func (c *context) SetMatrix(matrix *Matrix) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 	c.gstate.matrix = *matrix
+	return nil
 }
 
 func (c *context) GetMatrix() *Matrix {
@@ -552,11 +566,12 @@ func (c *context) GetMatrix() *Matrix {
 	return matrix
 }
 
-func (c *context) IdentityMatrix() {
+func (c *context) IdentityMatrix() error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 	c.gstate.matrix.InitIdentity()
+	return nil
 }
 
 // Coordinate transformations
@@ -608,18 +623,19 @@ func (c *context) GetCurrentPoint() (x, y float64) {
 }
 
 // Path creation
-func (c *context) NewPath() {
+func (c *context) NewPath() error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	c.path.data = c.path.data[:0]
-	c.currentPoint.hasPoint = false
-}
+c.currentPoint.hasPoint = false
+	return nil
+	}
 
-func (c *context) MoveTo(x, y float64) {
+func (c *context) MoveTo(x, y float64) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	op := pathOp{
@@ -631,22 +647,25 @@ func (c *context) MoveTo(x, y float64) {
 	c.currentPoint.y = y
 	c.currentPoint.hasPoint = true
 	c.path.subpathStartX = x
-	c.path.subpathStartY = y
-}
+c.path.subpathStartY = y
+	return nil
+	}
 
 func (c *context) NewSubPath() {
 	// Just clear current point without adding to path
 	c.currentPoint.hasPoint = false
 }
 
-func (c *context) LineTo(x, y float64) {
+func (c *context) LineTo(x, y float64) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	if !c.currentPoint.hasPoint {
-		c.MoveTo(x, y)
-		return
+		if err := c.MoveTo(x, y); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	op := pathOp{
@@ -655,16 +674,19 @@ func (c *context) LineTo(x, y float64) {
 	}
 	c.path.data = append(c.path.data, op)
 	c.currentPoint.x = x
-	c.currentPoint.y = y
-}
+c.currentPoint.y = y
+	return nil
+	}
 
-func (c *context) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
+func (c *context) CurveTo(x1, y1, x2, y2, x3, y3 float64) error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	if !c.currentPoint.hasPoint {
-		c.MoveTo(x1, y1)
+		if err := c.MoveTo(x1, y1); err != nil {
+			return err
+		}
 	}
 
 	op := pathOp{
@@ -673,16 +695,17 @@ func (c *context) CurveTo(x1, y1, x2, y2, x3, y3 float64) {
 	}
 	c.path.data = append(c.path.data, op)
 	c.currentPoint.x = x3
-	c.currentPoint.y = y3
-}
+c.currentPoint.y = y3
+	return nil
+	}
 
-func (c *context) ClosePath() {
+func (c *context) ClosePath() error {
 	if c.status != StatusSuccess {
-		return
+		return newError(c.status, "")
 	}
 
 	if len(c.path.data) == 0 {
-		return
+		return nil
 	}
 
 	op := pathOp{
@@ -691,8 +714,9 @@ func (c *context) ClosePath() {
 	}
 	c.path.data = append(c.path.data, op)
 	c.currentPoint.x = c.path.subpathStartX
-	c.currentPoint.y = c.path.subpathStartY
-}
+c.currentPoint.y = c.path.subpathStartY
+	return nil
+	}
 
 // Helper to convert cairo path to draw2d path
 func (c *context) applyPathToDraw2D() {
