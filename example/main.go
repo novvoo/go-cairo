@@ -49,11 +49,11 @@ func main() {
 
 	// 输出 PNG
 	if imgSurf, ok := surface.(cairo.ImageSurface); ok {
-		status := imgSurf.WriteToPNG("images/xiaomi_logo.png")
+		status := imgSurf.WriteToPNG("images/mi_logo.png")
 		if status != cairo.StatusSuccess {
 			panic(fmt.Sprintf("WriteToPNG failed: %v", status))
 		}
-		fmt.Println("MI Logo PNG saved successfully to images/xiaomi_logo.png")
+		fmt.Println("MI Logo PNG saved successfully to images/mi_logo.png")
 	} else {
 		panic("Surface is not an ImageSurface")
 	}
