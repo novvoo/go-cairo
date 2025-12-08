@@ -230,12 +230,7 @@ func (s *imageSurface) createGoImage() {
 
 func (s *baseSurface) Reference() Surface {
 	atomic.AddInt32(&s.refCount, 1)
-	return s.getSurface()
-}
-
-func (s *baseSurface) getSurface() Surface {
-	// This will be overridden in concrete types
-	return nil
+	return s
 }
 
 func (s *baseSurface) Destroy() {
@@ -245,13 +240,8 @@ func (s *baseSurface) Destroy() {
 }
 
 func (s *baseSurface) cleanup() {
-	// Base cleanup - overridden in concrete types
 	if s.device != nil {
 		s.device.Destroy()
-	}
-	// Clear finalizer only if surface is not nil
-	if surface := s.getSurface(); surface != nil {
-		runtime.SetFinalizer(surface, nil)
 	}
 }
 
@@ -403,20 +393,6 @@ func (s *baseSurface) ShowPage() {
 }
 
 // imageSurface specific implementation
-
-// getSurface returns the Surface interface for this image surface.
-func (s *imageSurface) getSurface() Surface {
-	return s
-}
-
-// cleanup releases resources held by this image surface.
-func (s *imageSurface) cleanup() {
-	// Return the data buffer to the pool if it's large enough to be worth recycling
-	if cap(s.data) > 4096 { // Heuristic: only pool buffers larger than 4KB
-		surfaceDataPool.Put(&s.data)
-	}
-	s.baseSurface.cleanup()
-}
 
 func (s *imageSurface) Reference() Surface {
 	atomic.AddInt32(&s.refCount, 1)
@@ -642,11 +618,6 @@ func NewPSSurface(filename string, widthInPoints, heightInPoints float64) Surfac
 
 // PDFSurface implementation
 
-// getSurface returns the Surface interface for this PDF surface.
-func (s *pdfSurface) getSurface() Surface {
-	return s
-}
-
 func (s *pdfSurface) Reference() Surface {
 	atomic.AddInt32(&s.refCount, 1)
 	return s
@@ -660,18 +631,7 @@ func (s *pdfSurface) GetHeight() float64 {
 	return s.height
 }
 
-func (s *pdfSurface) finishConcrete() {
-	// PDF surface finish implementation
-	// TODO: Implement proper PDF saving
-	s.status = StatusSuccess
-}
-
 // SVGSurface implementation
-
-// getSurface returns the Surface interface for this SVG surface.
-func (s *svgSurface) getSurface() Surface {
-	return s
-}
 
 func (s *svgSurface) Reference() Surface {
 	atomic.AddInt32(&s.refCount, 1)
@@ -684,19 +644,6 @@ func (s *svgSurface) GetWidth() float64 {
 
 func (s *svgSurface) GetHeight() float64 {
 	return s.height
-}
-
-func (s *svgSurface) finishConcrete() {
-	// SVG surface finish implementation
-	// TODO: Implement proper SVG saving
-	s.status = StatusSuccess
-}
-
-// PSSurface implementation
-
-// getSurface returns the Surface interface for this PostScript surface.
-func (s *psSurface) getSurface() Surface {
-	return s
 }
 
 func (s *psSurface) Reference() Surface {
@@ -730,10 +677,4 @@ func (s *psSurface) SetSize(widthInPoints, heightInPoints float64) {
 func (s *psSurface) DscComment(comment string) {
 	// DSC (Document Structuring Convention) comment
 	// Implementation would write to file
-}
-
-func (s *psSurface) finishConcrete() error {
-	// Finalize PostScript file
-	// TODO: Implement proper PostScript file handling
-	return nil
 }

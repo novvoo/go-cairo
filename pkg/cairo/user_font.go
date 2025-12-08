@@ -36,11 +36,6 @@ func NewUserFontFace() UserFontFace {
 	return face
 }
 
-// getfontface returns the FontFace interface for this user font face.
-func (f *userFontFace) getfontface() FontFace {
-	return f
-}
-
 // Reference increments the reference count.
 func (f *userFontFace) Reference() FontFace {
 	f.refCount++

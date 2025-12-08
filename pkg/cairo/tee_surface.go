@@ -41,21 +41,6 @@ func NewTeeSurface() TeeSurface {
 	return surface
 }
 
-// getSurface returns the Surface interface for this tee surface.
-func (s *teeSurface) getSurface() Surface {
-	return s
-}
-
-// cleanup releases resources held by this tee surface.
-func (s *teeSurface) cleanup() {
-	// Destroy all target surfaces
-	for _, target := range s.targets {
-		target.Destroy()
-	}
-	s.targets = nil
-	s.baseSurface.cleanup()
-}
-
 // AddSurface adds a surface to the list of targets.
 func (s *teeSurface) AddSurface(target Surface) error {
 	if target == nil {

@@ -350,10 +350,7 @@ func (p *basePattern) GetFilter() Filter {
 
 // Solid pattern implementation
 
-// getPattern returns the Pattern interface for this solid pattern.
-func (p *solidPattern) getPattern() Pattern {
-	return p
-}
+// (deleted unused getPattern)
 
 func (p *solidPattern) Reference() Pattern {
 	atomic.AddInt32(&p.refCount, 1)
@@ -368,31 +365,17 @@ func (p *solidPattern) GetRGBA() (red, green, blue, alpha float64) {
 
 // ... existing code ...
 
-// getPattern returns the Pattern interface for this surface pattern.
-func (p *surfacePattern) getPattern() Pattern {
-	return p
-}
+// (deleted unused getPattern)
 
-// cleanup releases resources held by this surface pattern.
-func (p *surfacePattern) cleanup() {
-	if p.surface != nil {
-		p.surface.Destroy()
-	}
-}
+// (deleted unused cleanup)
 
 func (p *surfacePattern) GetSurface() Surface {
 	return p.surface.Reference()
 }
 
-// getPattern returns the Pattern interface for this mesh pattern.
-func (p *meshPattern) getPattern() Pattern {
-	return p
-}
+// (deleted unused getPattern)
 
-// cleanup releases resources held by this mesh pattern.
-func (p *meshPattern) cleanup() {
-	// No special cleanup needed for mesh pattern
-}
+// (deleted unused cleanup)
 
 // Mesh pattern implementation
 
@@ -403,15 +386,6 @@ func (p *meshPattern) cleanup() {
 // Raster Source pattern implementation
 
 // ... existing code ...
-
-// getPattern returns the Pattern interface for this raster source pattern.
-func (p *rasterSourcePattern) getPattern() Pattern {
-	return p
-}
-
-func (p *rasterSourcePattern) cleanup() {
-	// The surface is acquired and released on demand, so nothing to clean up here
-}
 
 // linearGradient implementation
 func (p *gradientPattern) AddColorStopRGB(offset, red, green, blue float64) Status {
@@ -505,11 +479,6 @@ func (p *gradientPattern) GetColorStop(index int) (offset, red, green, blue, alp
 
 // Linear gradient implementation
 
-// getPattern returns the Pattern interface for this linear gradient.
-func (p *linearGradient) getPattern() Pattern {
-	return p
-}
-
 func (p *linearGradient) Reference() Pattern {
 	atomic.AddInt32(&p.refCount, 1)
 	return p
@@ -520,11 +489,6 @@ func (p *linearGradient) GetLinearPoints() (x0, y0, x1, y1 float64) {
 }
 
 // Radial gradient implementation
-
-// getPattern returns the Pattern interface for this radial gradient.
-func (p *radialGradient) getPattern() Pattern {
-	return p
-}
 
 func (p *radialGradient) Reference() Pattern {
 	atomic.AddInt32(&p.refCount, 1)

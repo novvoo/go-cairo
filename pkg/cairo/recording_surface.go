@@ -52,18 +52,6 @@ func NewRecordingSurface(content Content, width, height float64) Surface {
 	return surface
 }
 
-// getSurface returns the Surface interface for this recording surface.
-func (s *recordingSurface) getSurface() Surface {
-	return s
-}
-
-// cleanup releases resources held by this recording surface.
-func (s *recordingSurface) cleanup() {
-	// Clean up recorded operations if necessary
-	s.operations = nil
-	s.baseSurface.cleanup()
-}
-
 // Replay plays back the recorded operations onto the target context.
 func (s *recordingSurface) Replay(target Context) error {
 	// In a real implementation, this method would iterate over s.operations
