@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"image"
-	"image/color"
 	"image/png"
 	"os"
 	"runtime" // Added for SetFinalizer
@@ -25,15 +24,17 @@ var surfaceDataPool = sync.Pool{
 type imageSurface struct {
 	baseSurface
 
-	// Image data
+	// Image data (ARGB32)
 	data   []byte
 	width  int
 	height int
 	stride int
 	format Format
 
-	// Go image for interoperability
-	goImage *image.NRGBA
+	// RGBA buffer for draw2d interoperability
+	rgbaData  []byte
+	rgbaImage *image.RGBA
+	goImage   image.Image
 }
 
 // baseSurface provides common surface functionality
@@ -218,13 +219,36 @@ func formatToContent(format Format) Content {
 
 func (s *imageSurface) createGoImage() {
 	if s.format != FormatARGB32 {
-		return // Only support ARGB32 for now
+		return
 	}
 
-	s.goImage = &image.NRGBA{
-		Pix:    s.data,
+	size := s.stride * s.height
+	s.rgbaData = make([]byte, size)
+	s.rgbaImage = &image.RGBA{
+		Pix:    s.rgbaData,
 		Stride: s.stride,
 		Rect:   image.Rect(0, 0, s.width, s.height),
+	}
+	s.goImage = s.rgbaImage
+}
+
+func (s *imageSurface) syncARGBData() {
+	if s.rgbaImage == nil || s.format != FormatARGB32 {
+		return
+	}
+	stride := s.stride
+	for y := 0; y < s.height; y++ {
+		rgbaOff := y * stride
+		argbOff := y * stride
+		rgbaPtr := s.rgbaData[rgbaOff:]
+		argbPtr := s.data[argbOff:]
+		for x := 0; x < s.width; x++ {
+			i := x * 4
+			argbPtr[i+0] = rgbaPtr[i+3] // A <- A
+			argbPtr[i+1] = rgbaPtr[i+0] // R <- R
+			argbPtr[i+2] = rgbaPtr[i+1] // G <- G
+			argbPtr[i+3] = rgbaPtr[i+2] // B <- B
+		}
 	}
 }
 
@@ -443,33 +467,12 @@ func (s *imageSurface) WriteToPNG(filename string) Status {
 	}
 	defer file.Close()
 
-	// Convert NRGBA to RGBA if needed
-	var img image.Image = s.goImage
-	if s.format == FormatARGB32 {
-		// Convert from premultiplied ARGB to non-premultiplied RGBA
-		img = s.convertToRGBA()
-	}
-
-	err = png.Encode(file, img)
+	err = png.Encode(file, s.goImage)
 	if err != nil {
 		return StatusWriteError
 	}
 
 	return StatusSuccess
-}
-
-func (s *imageSurface) convertToRGBA() *image.RGBA {
-	bounds := s.goImage.Bounds()
-	rgba := image.NewRGBA(bounds)
-
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			c := s.goImage.At(x, y)
-			rgba.Set(x, y, c)
-		}
-	}
-
-	return rgba
 }
 
 // Format utilities
@@ -497,11 +500,10 @@ func LoadPNGSurface(filename string) (Surface, error) {
 
 	surface := NewImageSurface(FormatARGB32, width, height).(*imageSurface)
 
-	// Copy image data
+	// Copy image data to RGBA buffer
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			c := color.NRGBAModel.Convert(img.At(bounds.Min.X+x, bounds.Min.Y+y)).(color.NRGBA)
-			surface.goImage.SetNRGBA(x, y, c)
+			surface.rgbaImage.Set(x, y, img.At(bounds.Min.X+x, bounds.Min.Y+y))
 		}
 	}
 

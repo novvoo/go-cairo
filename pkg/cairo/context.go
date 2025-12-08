@@ -142,10 +142,14 @@ func NewContext(target Surface) Context {
 
 	switch s := target.(type) {
 	case ImageSurface:
-		// Temporary fix for test: create dummy RGBA image to avoid "Image type not supported" panic in draw2d
-		// Real integration needs proper ARGB32 to RGBA conversion with unpremultiply
-		dummyImage := image.NewRGBA(image.Rect(0, 0, 100, 100))
-		ctx.gc = draw2dimg.NewGraphicContext(dummyImage)
+		imgSurf := target.(ImageSurface)
+		goImage := imgSurf.GetGoImage()
+		if goImage != nil {
+			ctx.gc = draw2dimg.NewGraphicContext(goImage.(*image.RGBA))
+		} else {
+			dummyImage := image.NewRGBA(image.Rect(0, 0, imgSurf.GetWidth(), imgSurf.GetHeight()))
+			ctx.gc = draw2dimg.NewGraphicContext(dummyImage)
+		}
 	case *pdfSurface:
 		// Create a draw2d PDF context
 		_ = draw2dpdf.NewPdf("P", "mm", "A4")
@@ -775,6 +779,9 @@ func (c *context) applyStateToDraw2D() {
 		blendedColor := cairoBlendColor(fillColor, c.gstate.operator)
 		c.gc.SetFillColor(blendedColor)
 		c.gc.SetStrokeColor(blendedColor)
+
+		fontSize := math.Hypot(c.gstate.fontMatrix.XX, c.gstate.fontMatrix.YX)
+		c.gc.SetFontSize(fontSize)
 	case LinearGradientPattern:
 		// Gradient patterns are complex and not fully supported in draw2d
 		// For now, use a solid color approximation
@@ -1411,32 +1418,27 @@ func (c *context) ShowTextGlyphs(utf8 string, glyphs []Glyph, clusters []TextClu
 		return
 	}
 
-	// 4. Draw the glyphs
-	// The actual drawing is complex and depends on the underlying draw2d implementation.
-	// Since the goal is to integrate HarfBuzz-like shaping, we'll focus on the shaping part.
+	// Use bundled Luxi font for reliable rendering on Windows
+	family := draw2d.FontFamilySerif
+	style := draw2d.FontStyleBold
+	c.gc.SetFontData(draw2d.FontData{Family: family, Style: style})
 
-	// HarfBuzz shaping (simulated/placeholder)
-	// In a real implementation, the glyphs and positions would come from HarfBuzz.
-	// Since the user provided the glyphs, we'll use them directly.
+	c.applyStateToDraw2D()
+	if c.currentPoint.hasPoint {
+		c.gc.MoveTo(c.currentPoint.x, c.currentPoint.y)
+		// Add stroke for better visibility
+		c.gc.SetLineWidth(1.5)
+		strokeColor := color.NRGBA{R: 0, G: 0, B: 0, A: 255}
+		c.gc.SetStrokeColor(strokeColor)
+		c.gc.StrokeString(utf8)
+		c.gc.FillString(utf8)
 
-	// A full implementation would involve:
-	// a. Getting the FT_Face from the realFace (if it's an FT font).
-	// b. Creating an HB_Font from the FT_Face.
-	// c. Creating an HB_Buffer and populating it with the UTF-8 text.
-	// d. Calling HBShapeText to get the shaped glyphs and positions.
-	// e. Converting the HB glyphs/positions to cairo Glyph/TextCluster.
-	// f. Drawing the glyphs using the underlying font renderer (e.g., FreeType/draw2d).
-
-	// Since the current implementation uses go-text/typesetting/shaping, we can leverage that.
-	// However, the user explicitly asked for HarfBuzz integration.
-
-	// For now, we'll use the provided glyphs and clusters and attempt to draw them.
-	// The drawing logic is still missing in the original code.
-
-	// Placeholder for drawing logic:
-	// c.gc.DrawGlyphs(realFace, glyphs, clusters) // Hypothetical draw2d method
-
-	c.status = StatusUserFontNotImplemented
+		// Update current point after text
+		extents := c.TextExtents(utf8)
+		c.currentPoint.x += extents.XAdvance
+		c.currentPoint.y += extents.YAdvance
+		c.currentPoint.hasPoint = true
+	}
 }
 
 func (c *context) GlyphPath(glyphs []Glyph) {

@@ -62,6 +62,39 @@ var fontLookupTable = map[string]map[FontSlant]map[FontWeight]font.Face{
 	},
 }
 
+var fontDataLookupTable = map[string]map[FontSlant]map[FontWeight][]byte{
+	"sans": {
+		FontSlantNormal: {
+			FontWeightNormal: goregular.TTF,
+			FontWeightBold:   gobold.TTF,
+		},
+		FontSlantItalic: {
+			FontWeightNormal: goitalic.TTF,
+			FontWeightBold:   gobolditalic.TTF,
+		},
+	},
+	"serif": {
+		FontSlantNormal: {
+			FontWeightNormal: goregular.TTF,
+			FontWeightBold:   gobold.TTF,
+		},
+		FontSlantItalic: {
+			FontWeightNormal: goitalic.TTF,
+			FontWeightBold:   gobolditalic.TTF,
+		},
+	},
+	"monospace": {
+		FontSlantNormal: {
+			FontWeightNormal: goregular.TTF,
+			FontWeightBold:   gobold.TTF,
+		},
+		FontSlantItalic: {
+			FontWeightNormal: goitalic.TTF,
+			FontWeightBold:   gobolditalic.TTF,
+		},
+	},
+}
+
 func loadGoFont(ttf []byte) font.Face {
 	f, err := font.ParseTTF(bytes.NewReader(ttf))
 	if err != nil {
@@ -349,6 +382,7 @@ type toyFontFace struct {
 
 	// Real font face from go-text/typesetting
 	realFace font.Face
+	fontData []byte
 }
 
 // NewToyFontFace creates a toy font face similar to cairo_toy_font_face_create.
@@ -381,6 +415,15 @@ func NewToyFontFace(family string, slant FontSlant, weight FontWeight) FontFace 
 		if weights, ok := slants[ff.slant]; ok {
 			if face, ok := weights[ff.weight]; ok && face != nil {
 				ff.realFace = face
+			}
+		}
+	}
+
+	// Set fontData from lookup table
+	if dataSlants, ok := fontDataLookupTable[familyKey]; ok {
+		if dataWeights, ok := dataSlants[ff.slant]; ok {
+			if data, ok := dataWeights[ff.weight]; ok {
+				ff.fontData = data
 			}
 		}
 	}
