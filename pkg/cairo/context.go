@@ -10,7 +10,6 @@ import (
 
 	"image/color"
 
-	"github.com/go-text/typesetting/opentype/api"
 	"github.com/llgcode/draw2d"
 	"github.com/llgcode/draw2d/draw2dimg"
 	"github.com/llgcode/draw2d/draw2dpdf"
@@ -1334,113 +1333,92 @@ func (c *context) ShowText(utf8 string) {
 		return
 	}
 
-	if c.gstate.scaledFont == nil {
+	// Ensure we have a scaled font
+	sf := c.GetScaledFont()
+	if sf == nil {
 		c.status = StatusFontTypeMismatch
 		return
 	}
+	defer sf.Destroy()
 
-	// 1. Get the underlying font face
-	ff := c.gstate.scaledFont.GetFontFace()
-	if ff == nil {
-		c.status = StatusFontTypeMismatch
-		return
-	}
-	toyFF, ok := ff.(*toyFontFace)
-	if !ok {
-		c.status = StatusFontTypeMismatch
-		return
+	// Get current point or use (0, 0)
+	x, y := c.GetCurrentPoint()
+	if !c.currentPoint.hasPoint {
+		x, y = 0, 0
 	}
 
-	// 2. Get the real font face
-	realFace := toyFF.realFace
-	if realFace == nil {
-		c.status = StatusFontTypeMismatch
+	// Perform text shaping to get glyphs
+	glyphs, clusters, clusterFlags, status := sf.TextToGlyphs(x, y, utf8)
+	if status != StatusSuccess {
+		c.status = status
 		return
 	}
 
-	// 3. Perform shaping using go-text/typesetting/shaping
-	// This is the HarfBuzz-like shaping logic that go-text provides.
-	// We'll use this as the pure Go alternative.
-
-	// For now, create simple glyphs from the text
-	// A proper implementation would use shaping
-	glyphs := make([]Glyph, len(utf8))
-	for i := range utf8 {
-		glyphs[i] = Glyph{
-			Index: uint64(i),
-			X:     float64(i) * 10.0,
-			Y:     0,
-		}
-	}
-
-	// The go-text shaping output does not directly provide cairo-style clusters.
-	// This is a simplification.
-	// For now, we'll use a single cluster covering the whole text.
-	clusters := []TextCluster{{NumBytes: len(utf8), NumGlyphs: len(glyphs)}}
-
-	// 4. Draw the glyphs
-	// The actual drawing is still missing. We'll call ShowTextGlyphs
-	c.ShowTextGlyphs(utf8, glyphs, clusters, 0)
+	// Draw the glyphs
+	c.ShowTextGlyphs(utf8, glyphs, clusters, clusterFlags)
 }
 
-// ShowTextGlyphs draws the given glyphs.
+// ShowTextGlyphs draws the given glyphs by converting them to paths and filling.
 func (c *context) ShowTextGlyphs(utf8 string, glyphs []Glyph, clusters []TextCluster, flags TextClusterFlags) {
 	if c.status != StatusSuccess {
 		return
 	}
 
-	if c.gstate.scaledFont == nil {
+	// Ensure we have a scaled font
+	sf := c.GetScaledFont()
+	if sf == nil {
 		c.status = StatusFontTypeMismatch
 		return
 	}
+	defer sf.Destroy()
 
-	// 1. Apply state to draw2d context
-	c.applyStateToDraw2D()
+	// Method 1: Use glyph paths (proper Cairo way)
+	// This converts each glyph to its outline path and fills it
+	for _, glyph := range glyphs {
+		// Get the glyph path
+		sfImpl, ok := sf.(*scaledFont)
+		if !ok {
+			continue
+		}
 
-	// 2. Get the underlying font face
-	ff := c.gstate.scaledFont.GetFontFace()
-	if ff == nil {
-		c.status = StatusFontTypeMismatch
-		return
+		glyphPath, err := sfImpl.GlyphPath(glyph.Index)
+		if err != nil || glyphPath == nil {
+			continue
+		}
+
+		// Save current state
+		c.Save()
+
+		// Translate to glyph position
+		c.Translate(glyph.X, glyph.Y)
+
+		// Note: Don't flip Y axis - draw2d fonts are already in the correct orientation
+		// The Scale(1, -1) was causing glyphs to overlap
+
+		// Append the glyph path to current path
+		c.AppendPath(glyphPath)
+
+		// Fill the glyph
+		c.Fill()
+
+		// Restore state
+		c.Restore()
 	}
-	toyFF, ok := ff.(*toyFontFace)
-	if !ok {
-		// For non-toy fonts (e.g., UserFont), we would need a different rendering path.
-		// For now, we only support toy fonts.
-		c.status = StatusFontTypeMismatch
-		return
-	}
 
-	// 3. Get the real font face
-	realFace := toyFF.realFace
-	if realFace == nil {
-		c.status = StatusFontTypeMismatch
-		return
-	}
+	// Update current point to the position after the last glyph
+	if len(glyphs) > 0 {
+		lastGlyph := glyphs[len(glyphs)-1]
 
-	// Use bundled Luxi font for reliable rendering on Windows
-	family := draw2d.FontFamilySerif
-	style := draw2d.FontStyleBold
-	c.gc.SetFontData(draw2d.FontData{Family: family, Style: style})
-
-	c.applyStateToDraw2D()
-	if c.currentPoint.hasPoint {
-		c.gc.MoveTo(c.currentPoint.x, c.currentPoint.y)
-		// Add stroke for better visibility
-		c.gc.SetLineWidth(1.5)
-		strokeColor := color.NRGBA{R: 0, G: 0, B: 0, A: 255}
-		c.gc.SetStrokeColor(strokeColor)
-		c.gc.StrokeString(utf8)
-		c.gc.FillString(utf8)
-
-		// Update current point after text
+		// Get text extents to calculate the final position
 		extents := c.TextExtents(utf8)
-		c.currentPoint.x += extents.XAdvance
-		c.currentPoint.y += extents.YAdvance
+
+		c.currentPoint.x = lastGlyph.X + extents.XAdvance/float64(len(glyphs))
+		c.currentPoint.y = lastGlyph.Y
 		c.currentPoint.hasPoint = true
 	}
 }
 
+// GlyphPath adds the given glyphs to the current path.
 func (c *context) GlyphPath(glyphs []Glyph) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1455,32 +1433,29 @@ func (c *context) GlyphPath(glyphs []Glyph) {
 		return
 	}
 
-	// 2. Get the real font face
-	realFace, status := sf.getRealFace()
-	if status != StatusSuccess {
-		c.status = status
-		return
-	}
-
-	// 3. Get the font size (in user space)
-	fontSize := sf.fontMatrix.YY // Simplified: assume uniform scaling
-	_ = fontSize                 // Unused for now
-
-	// 4. Iterate over glyphs and convert to path
+	// 2. Iterate over glyphs and convert to path
 	for _, g := range glyphs {
-		// Get the glyph outline (path)
-		_ = realFace.GlyphData(api.GID(g.Index))
-		// Skip glyph if outline is not available
+		// Get the glyph path from the scaled font
+		glyphPath, err := sf.GlyphPath(g.Index)
+		if err != nil || glyphPath == nil {
+			// Skip glyphs without outlines
+			continue
+		}
 
-		// 5. Transform and append path
-		// The glyph path is in font units. We need to scale it to user space
-		// and then translate it to the glyph's position (g.X, g.Y).
-		// The final path is in device space, so we need to transform it by the CTM.
+		// Save current transformation
+		savedMatrix := c.gstate.matrix
 
-		// TODO: Implement full glyph path conversion
-		// For now, we'll just set the status to not implemented.
-		c.status = StatusUserFontNotImplemented
-		return
+		// Translate to glyph position
+		c.Translate(g.X, g.Y)
+
+		// Flip Y axis for proper glyph orientation
+		c.Scale(1, -1)
+
+		// Append the glyph path to current path
+		c.AppendPath(glyphPath)
+
+		// Restore transformation
+		c.gstate.matrix = savedMatrix
 	}
 }
 
@@ -1661,7 +1636,41 @@ func (c *context) ShowGlyphs(glyphs []Glyph) {
 	c.ShowTextGlyphs("", glyphs, nil, 0)
 }
 
+// TextPath adds the text to the current path as glyph outlines.
 func (c *context) TextPath(utf8 string) {
-	// TODO: Implement text path
-	c.status = StatusUserFontNotImplemented
+	if c.status != StatusSuccess {
+		return
+	}
+
+	// Ensure we have a scaled font
+	sf := c.GetScaledFont()
+	if sf == nil {
+		c.status = StatusFontTypeMismatch
+		return
+	}
+	defer sf.Destroy()
+
+	// Get current point or use (0, 0)
+	x, y := c.GetCurrentPoint()
+	if !c.currentPoint.hasPoint {
+		x, y = 0, 0
+	}
+
+	// Perform text shaping to get glyphs
+	glyphs, _, _, status := sf.TextToGlyphs(x, y, utf8)
+	if status != StatusSuccess {
+		c.status = status
+		return
+	}
+
+	// Add glyphs to path
+	c.GlyphPath(glyphs)
+
+	// Update current point
+	if len(glyphs) > 0 {
+		extents := c.TextExtents(utf8)
+		c.currentPoint.x = x + extents.XAdvance
+		c.currentPoint.y = y + extents.YAdvance
+		c.currentPoint.hasPoint = true
+	}
 }

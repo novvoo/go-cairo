@@ -1,7 +1,6 @@
 package cairo
 
 import (
-	"bytes"
 	"math"
 	"strings"
 	"sync/atomic"
@@ -11,96 +10,49 @@ import (
 	"github.com/go-text/typesetting/font"
 	"github.com/go-text/typesetting/opentype/api"
 	"github.com/go-text/typesetting/shaping"
-	"golang.org/x/image/font/gofont/gobold"
-	"golang.org/x/image/font/gofont/gobolditalic"
-	"golang.org/x/image/font/gofont/goitalic"
-	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/math/fixed"
 )
 
 var defaultFont font.Face
 
 func init() {
-	// Load Go Regular as a fallback
-	f, err := font.ParseTTF(bytes.NewReader(goregular.TTF))
-	if err == nil {
-		defaultFont = f
+	// Load default font and initialize draw2d fonts
+	f, _ := GetDefaultFont()
+	defaultFont = f
+	InitDraw2DFonts()
+}
+
+// getFontKey creates a lookup key for font cache
+func getFontKey(family string, slant FontSlant, weight FontWeight) string {
+	familyKey := family
+	if family == "sans-serif" || family == "sans" {
+		familyKey = "sans"
+	} else if family == "serif" {
+		familyKey = "serif"
+	} else if family == "monospace" || family == "mono" {
+		familyKey = "mono"
+	} else {
+		familyKey = "sans" // Fallback
 	}
-}
 
-// fontLookupTable is a simple map for toy font face lookup
-var fontLookupTable = map[string]map[FontSlant]map[FontWeight]font.Face{
-	"sans": {
-		FontSlantNormal: {
-			FontWeightNormal: loadGoFont(goregular.TTF),
-			FontWeightBold:   loadGoFont(gobold.TTF),
-		},
-		FontSlantItalic: {
-			FontWeightNormal: loadGoFont(goitalic.TTF),
-			FontWeightBold:   loadGoFont(gobolditalic.TTF),
-		},
-	},
-	"serif": {
-		FontSlantNormal: {
-			FontWeightNormal: loadGoFont(goregular.TTF),
-			FontWeightBold:   loadGoFont(gobold.TTF),
-		},
-		FontSlantItalic: {
-			FontWeightNormal: loadGoFont(goitalic.TTF),
-			FontWeightBold:   loadGoFont(gobolditalic.TTF),
-		},
-	},
-	"monospace": {
-		FontSlantNormal: {
-			FontWeightNormal: loadGoFont(goregular.TTF),
-			FontWeightBold:   loadGoFont(gobold.TTF),
-		},
-		FontSlantItalic: {
-			FontWeightNormal: loadGoFont(goitalic.TTF),
-			FontWeightBold:   loadGoFont(gobolditalic.TTF),
-		},
-	},
-}
-
-var fontDataLookupTable = map[string]map[FontSlant]map[FontWeight][]byte{
-	"sans": {
-		FontSlantNormal: {
-			FontWeightNormal: goregular.TTF,
-			FontWeightBold:   gobold.TTF,
-		},
-		FontSlantItalic: {
-			FontWeightNormal: goitalic.TTF,
-			FontWeightBold:   gobolditalic.TTF,
-		},
-	},
-	"serif": {
-		FontSlantNormal: {
-			FontWeightNormal: goregular.TTF,
-			FontWeightBold:   gobold.TTF,
-		},
-		FontSlantItalic: {
-			FontWeightNormal: goitalic.TTF,
-			FontWeightBold:   gobolditalic.TTF,
-		},
-	},
-	"monospace": {
-		FontSlantNormal: {
-			FontWeightNormal: goregular.TTF,
-			FontWeightBold:   gobold.TTF,
-		},
-		FontSlantItalic: {
-			FontWeightNormal: goitalic.TTF,
-			FontWeightBold:   gobolditalic.TTF,
-		},
-	},
-}
-
-func loadGoFont(ttf []byte) font.Face {
-	f, err := font.ParseTTF(bytes.NewReader(ttf))
-	if err != nil {
-		return nil
+	slantKey := "regular"
+	if slant == FontSlantItalic || slant == FontSlantOblique {
+		slantKey = "italic"
 	}
-	return f
+
+	weightKey := ""
+	if weight == FontWeightBold {
+		weightKey = "bold"
+	}
+
+	if weightKey != "" && slantKey == "italic" {
+		return familyKey + "-bolditalic"
+	} else if weightKey != "" {
+		return familyKey + "-bold"
+	} else if slantKey == "italic" {
+		return familyKey + "-italic"
+	}
+	return familyKey + "-regular"
 }
 
 // ---------------- Font options (cairo_font_options_t) ----------------
@@ -399,39 +351,22 @@ func NewToyFontFace(family string, slant FontSlant, weight FontWeight) FontFace 
 		weight: weight,
 	}
 
-	// Simple font lookup based on family, slant, and weight
-	familyKey := strings.ToLower(ff.family)
-	if familyKey == "sans-serif" || familyKey == "sans" {
-		familyKey = "sans"
-	} else if familyKey == "serif" {
-		familyKey = "serif"
-	} else if familyKey == "monospace" {
-		familyKey = "monospace"
-	} else {
-		familyKey = "sans" // Fallback to sans
-	}
-
-	if slants, ok := fontLookupTable[familyKey]; ok {
-		if weights, ok := slants[ff.slant]; ok {
-			if face, ok := weights[ff.weight]; ok && face != nil {
-				ff.realFace = face
-			}
+	// Get font key and load font
+	fontKey := getFontKey(family, slant, weight)
+	face, data, err := LoadEmbeddedFont(fontKey)
+	if err != nil {
+		// Try loading from assets if family looks like a file
+		if strings.Contains(family, "/") || strings.Contains(family, "\\") {
+			face, data, err = LoadFontFromFile(family)
+		}
+		if err != nil {
+			// Final fallback to default font
+			face, data = GetDefaultFont()
 		}
 	}
 
-	// Set fontData from lookup table
-	if dataSlants, ok := fontDataLookupTable[familyKey]; ok {
-		if dataWeights, ok := dataSlants[ff.slant]; ok {
-			if data, ok := dataWeights[ff.weight]; ok {
-				ff.fontData = data
-			}
-		}
-	}
-
-	// Final fallback
-	if ff.realFace == nil {
-		ff.realFace = defaultFont
-	}
+	ff.realFace = face
+	ff.fontData = data
 
 	if ff.realFace == nil {
 		ff.status = StatusFontTypeMismatch
