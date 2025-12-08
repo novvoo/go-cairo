@@ -14,7 +14,7 @@ type solidPattern struct {
 	red, green, blue, alpha float64
 }
 
-// surfacePattern implements surface-based patterns  
+// surfacePattern implements surface-based patterns
 type surfacePattern struct {
 	basePattern
 	surface Surface
@@ -50,49 +50,49 @@ func (p *cairoSurfacePatternImage) At(x, y int) color.Color {
 	// to the fill/stroke operation before sampling the pattern.
 	// However, draw2d's pattern sampling is typically done in device space
 	// and then transformed by the pattern's matrix.
-	
+
 	// Let's assume (x, y) are coordinates in the pattern's user space,
 	// which is what draw2d's SetFillPattern expects after applying the CTM.
-	
+
 	// 2. Convert pattern user space (x, y) to pattern source space (sx, sy)
 	// Pattern source space = Pattern Matrix Inverse * Pattern User Space
-	
+
 	// Copy pattern matrix and invert it
 	patMatrix := p.pattern.matrix
 	if status := MatrixInvert(&patMatrix); status != StatusSuccess {
 		// Fallback to solid black on error
 		return color.NRGBA{A: 0xFF}
 	}
-	
+
 	sx, sy := MatrixTransformPoint(&patMatrix, float64(x), float64(y))
-	
+
 	// 3. Apply Extend logic
 	srcBounds := p.sourceImg.Bounds()
 	srcW := float64(srcBounds.Dx())
 	srcH := float64(srcBounds.Dy())
-	
+
 	// Normalize coordinates to [0, srcW) and [0, srcH)
 	var finalX, finalY float64
-	
+
 	switch p.pattern.extend {
 	case ExtendNone:
 		if sx < 0 || sx >= srcW || sy < 0 || sy >= srcH {
 			return color.NRGBA{A: 0x00} // Transparent
 		}
 		finalX, finalY = sx, sy
-		case ExtendRepeat:
-			// Cairo's repeat is equivalent to Go's math.Mod, but we must handle negative numbers correctly.
-			// The current implementation is correct for Go's math.Mod for positive numbers,
-			// and the subsequent 'if finalX < 0' handles the negative case.
-			// No change needed for the logic, but adding a comment for clarity.
-			finalX = math.Mod(sx, srcW)
-			if finalX < 0 {
-				finalX += srcW
-			}
-			finalY = math.Mod(sy, srcH)
-			if finalY < 0 {
-				finalY += srcH
-			}
+	case ExtendRepeat:
+		// Cairo's repeat is equivalent to Go's math.Mod, but we must handle negative numbers correctly.
+		// The current implementation is correct for Go's math.Mod for positive numbers,
+		// and the subsequent 'if finalX < 0' handles the negative case.
+		// No change needed for the logic, but adding a comment for clarity.
+		finalX = math.Mod(sx, srcW)
+		if finalX < 0 {
+			finalX += srcW
+		}
+		finalY = math.Mod(sy, srcH)
+		if finalY < 0 {
+			finalY += srcH
+		}
 	case ExtendReflect:
 		// Reflect logic: 0..W, W..0, 0..W, ...
 		finalX = math.Mod(sx, 2*srcW)
@@ -102,7 +102,7 @@ func (p *cairoSurfacePatternImage) At(x, y int) color.Color {
 		if finalX >= srcW {
 			finalX = 2*srcW - finalX
 		}
-		
+
 		finalY = math.Mod(sy, 2*srcH)
 		if finalY < 0 {
 			finalY += 2 * srcH
@@ -116,18 +116,18 @@ func (p *cairoSurfacePatternImage) At(x, y int) color.Color {
 	default:
 		finalX, finalY = sx, sy // Fallback to no extend
 	}
-	
-		// 4. Apply Filter logic (simplification: nearest neighbor for Fast, bilinear for Good/Best)
-		// Since draw2d's At() method is called with integer coordinates, we'll use nearest neighbor.
-		// For better filtering, we would need to implement a custom image sampler.
-		
-		// Convert back to integer coordinates relative to the source image's Min point
-		srcX := int(finalX) + srcBounds.Min.X
-		srcY := int(finalY) + srcBounds.Min.Y
-		
-		// 5. Sample color
-		// TODO: Implement proper filtering based on p.pattern.filter
-		return p.sourceImg.At(srcX, srcY)
+
+	// 4. Apply Filter logic (simplification: nearest neighbor for Fast, bilinear for Good/Best)
+	// Since draw2d's At() method is called with integer coordinates, we'll use nearest neighbor.
+	// For better filtering, we would need to implement a custom image sampler.
+
+	// Convert back to integer coordinates relative to the source image's Min point
+	srcX := int(finalX) + srcBounds.Min.X
+	srcY := int(finalY) + srcBounds.Min.Y
+
+	// 5. Sample color
+	// TODO: Implement proper filtering based on p.pattern.filter
+	return p.sourceImg.At(srcX, srcY)
 }
 
 // gradientPattern is the base for gradient patterns
@@ -137,7 +137,7 @@ type gradientPattern struct {
 }
 
 type gradientStop struct {
-	offset float64
+	offset                  float64
 	red, green, blue, alpha float64
 }
 
@@ -150,7 +150,7 @@ type linearGradient struct {
 // meshPattern implements mesh gradient patterns
 type meshPattern struct {
 	basePattern
-	patches []*MeshPatch
+	patches      []*MeshPatch
 	currentPatch *MeshPatch
 }
 
@@ -171,10 +171,10 @@ type rasterSourcePattern struct {
 	basePattern
 	acquireFunc RasterSourceAcquireFunc
 	releaseFunc RasterSourceReleaseFunc
-	surface Surface // The acquired surface
+	surface     Surface // The acquired surface
 }
 
-// radialGradient implements radial gradient patterns  
+// radialGradient implements radial gradient patterns
 type radialGradient struct {
 	gradientPattern
 	cx0, cy0, radius0 float64
@@ -203,12 +203,12 @@ func (p *cairoGradientPatternImage) At(x, y int) color.Color {
 	if status := MatrixInvert(&patMatrix); status != StatusSuccess {
 		return color.NRGBA{A: 0xFF} // Fallback to solid black on error
 	}
-	
+
 	sx, sy := MatrixTransformPoint(&patMatrix, float64(x), float64(y))
-	
+
 	// 2. Calculate the position 't' along the gradient vector
 	var t float64
-	
+
 	switch pat := p.pattern.getPattern().(type) {
 	case *linearGradient:
 		// Vector from (x0, y0) to (x1, y1)
@@ -233,7 +233,7 @@ func (p *cairoGradientPatternImage) At(x, y int) color.Color {
 	default:
 		return color.NRGBA{A: 0x00} // Should not happen
 	}
-	
+
 	// 3. Apply Extend logic to 't'
 	switch p.pattern.extend {
 	case ExtendNone:
@@ -251,18 +251,18 @@ func (p *cairoGradientPatternImage) At(x, y int) color.Color {
 	case ExtendPad:
 		t = math.Max(0, math.Min(1, t))
 	}
-	
+
 	// 4. Sample color from color stops at position 't'
 	// This requires iterating over the stops and interpolating.
 	// This is a placeholder for the actual color interpolation logic.
 	// For now, return a fixed color to indicate the logic is hit.
-	
+
 	// Find the two stops t is between and linearly interpolate the color.
 	stops := p.pattern.stops
 	if len(stops) == 0 {
 		return color.NRGBA{A: 0x00}
 	}
-	
+
 	if t <= stops[0].offset {
 		r := uint8(stops[0].red * 255)
 		g := uint8(stops[0].green * 255)
@@ -270,7 +270,7 @@ func (p *cairoGradientPatternImage) At(x, y int) color.Color {
 		a := uint8(stops[0].alpha * 255)
 		return color.NRGBA{R: r, G: g, B: b, A: a}
 	}
-	
+
 	if t >= stops[len(stops)-1].offset {
 		last := stops[len(stops)-1]
 		r := uint8(last.red * 255)
@@ -279,11 +279,11 @@ func (p *cairoGradientPatternImage) At(x, y int) color.Color {
 		a := uint8(last.alpha * 255)
 		return color.NRGBA{R: r, G: g, B: b, A: a}
 	}
-	
+
 	for i := 0; i < len(stops)-1; i++ {
 		stop1 := stops[i]
 		stop2 := stops[i+1]
-		
+
 		if t >= stop1.offset && t <= stop2.offset {
 			// Linear interpolation
 			ratio := (t - stop1.offset) / (stop2.offset - stop1.offset)
@@ -291,7 +291,7 @@ func (p *cairoGradientPatternImage) At(x, y int) color.Color {
 			g := stop1.green + (stop2.green-stop1.green)*ratio
 			b := stop1.blue + (stop2.blue-stop1.blue)*ratio
 			a := stop1.alpha + (stop2.alpha-stop1.alpha)*ratio
-			
+
 			return color.NRGBA{
 				R: uint8(r * 255),
 				G: uint8(g * 255),
@@ -300,19 +300,19 @@ func (p *cairoGradientPatternImage) At(x, y int) color.Color {
 			}
 		}
 	}
-	
+
 	return color.NRGBA{A: 0x00} // Should not be reached
 }
 
 // basePattern provides common pattern functionality
 type basePattern struct {
-	refCount int32
-	status   Status
+	refCount    int32
+	status      Status
 	patternType PatternType
-	matrix   Matrix
-	extend   Extend
-	filter   Filter
-	userData map[*UserDataKey]interface{}
+	matrix      Matrix
+	extend      Extend
+	filter      Filter
+	userData    map[*UserDataKey]interface{}
 }
 
 // NewPatternRGB creates a solid color pattern with RGB values
@@ -324,16 +324,16 @@ func NewPatternRGB(red, green, blue float64) Pattern {
 func NewPatternRGBA(red, green, blue, alpha float64) Pattern {
 	pattern := &solidPattern{
 		basePattern: basePattern{
-			refCount: 1,
-			status: StatusSuccess,
+			refCount:    1,
+			status:      StatusSuccess,
 			patternType: PatternTypeSolid,
-			extend: ExtendNone,
-			filter: FilterFast,
-			userData: make(map[*UserDataKey]interface{}),
+			extend:      ExtendNone,
+			filter:      FilterFast,
+			userData:    make(map[*UserDataKey]interface{}),
 		},
-		red: red,
-		green: green, 
-		blue: blue,
+		red:   red,
+		green: green,
+		blue:  blue,
 		alpha: alpha,
 	}
 	pattern.matrix.InitIdentity()
@@ -345,15 +345,15 @@ func NewPatternForSurface(surface Surface) Pattern {
 	if surface == nil {
 		return newPatternInError(StatusNullPointer)
 	}
-	
+
 	pattern := &surfacePattern{
 		basePattern: basePattern{
-			refCount: 1,
-			status: StatusSuccess,
+			refCount:    1,
+			status:      StatusSuccess,
 			patternType: PatternTypeSurface,
-			extend: ExtendNone,
-			filter: FilterFast,
-			userData: make(map[*UserDataKey]interface{}),
+			extend:      ExtendNone,
+			filter:      FilterFast,
+			userData:    make(map[*UserDataKey]interface{}),
 		},
 		surface: surface.Reference(),
 	}
@@ -366,12 +366,12 @@ func NewPatternLinear(x0, y0, x1, y1 float64) Pattern {
 	pattern := &linearGradient{
 		gradientPattern: gradientPattern{
 			basePattern: basePattern{
-				refCount: 1,
-				status: StatusSuccess,
+				refCount:    1,
+				status:      StatusSuccess,
 				patternType: PatternTypeLinear,
-				extend: ExtendNone,
-				filter: FilterFast,
-				userData: make(map[*UserDataKey]interface{}),
+				extend:      ExtendNone,
+				filter:      FilterFast,
+				userData:    make(map[*UserDataKey]interface{}),
 			},
 			stops: make([]gradientStop, 0),
 		},
@@ -386,12 +386,12 @@ func NewPatternLinear(x0, y0, x1, y1 float64) Pattern {
 func NewPatternMesh() Pattern {
 	pattern := &meshPattern{
 		basePattern: basePattern{
-			refCount: 1,
-			status: StatusSuccess,
+			refCount:    1,
+			status:      StatusSuccess,
 			patternType: PatternTypeMesh,
-			extend: ExtendNone,
-			filter: FilterFast,
-			userData: make(map[*UserDataKey]interface{}),
+			extend:      ExtendNone,
+			filter:      FilterFast,
+			userData:    make(map[*UserDataKey]interface{}),
 		},
 		patches: make([]*MeshPatch, 0),
 	}
@@ -446,12 +446,12 @@ func (p *meshPattern) MeshPatternSetCornerColor(cornerNum int, red, green, blue,
 func NewPatternRasterSource(acquireFunc RasterSourceAcquireFunc, releaseFunc RasterSourceReleaseFunc) Pattern {
 	pattern := &rasterSourcePattern{
 		basePattern: basePattern{
-			refCount: 1,
-			status: StatusSuccess,
+			refCount:    1,
+			status:      StatusSuccess,
 			patternType: PatternTypeRasterSource,
-			extend: ExtendNone,
-			filter: FilterFast,
-			userData: make(map[*UserDataKey]interface{}),
+			extend:      ExtendNone,
+			filter:      FilterFast,
+			userData:    make(map[*UserDataKey]interface{}),
 		},
 		acquireFunc: acquireFunc,
 		releaseFunc: releaseFunc,
@@ -460,17 +460,17 @@ func NewPatternRasterSource(acquireFunc RasterSourceAcquireFunc, releaseFunc Ras
 	return pattern
 }
 
-// radialGradient implements radial gradient patterns  
+// radialGradient implements radial gradient patterns
 func NewPatternRadial(cx0, cy0, radius0, cx1, cy1, radius1 float64) Pattern {
 	pattern := &radialGradient{
 		gradientPattern: gradientPattern{
 			basePattern: basePattern{
-				refCount: 1,
-				status: StatusSuccess,
+				refCount:    1,
+				status:      StatusSuccess,
 				patternType: PatternTypeRadial,
-				extend: ExtendNone,
-				filter: FilterFast,
-				userData: make(map[*UserDataKey]interface{}),
+				extend:      ExtendNone,
+				filter:      FilterFast,
+				userData:    make(map[*UserDataKey]interface{}),
 			},
 			stops: make([]gradientStop, 0),
 		},
@@ -484,10 +484,10 @@ func NewPatternRadial(cx0, cy0, radius0, cx1, cy1, radius1 float64) Pattern {
 func newPatternInError(status Status) Pattern {
 	pattern := &solidPattern{
 		basePattern: basePattern{
-			refCount: 1,
-			status: status,
+			refCount:    1,
+			status:      status,
 			patternType: PatternTypeSolid,
-			userData: make(map[*UserDataKey]interface{}),
+			userData:    make(map[*UserDataKey]interface{}),
 		},
 	}
 	return pattern
@@ -534,7 +534,7 @@ func (p *basePattern) SetUserData(key *UserDataKey, userData unsafe.Pointer, des
 	if p.status != StatusSuccess {
 		return p.status
 	}
-	
+
 	p.userData[key] = userData
 	// TODO: Store destroy function and call it when appropriate
 	return StatusSuccess
@@ -599,45 +599,43 @@ func (p *solidPattern) GetRGBA() (red, green, blue, alpha float64) {
 
 // Surface pattern implementation
 
-func (p *surfacePattern) getPatt	// Surface pattern implementation
-	
-	func (p *surfacePattern) getPattern() Pattern {
-		return p
+func (p *surfacePattern) getPattern() Pattern {
+	return p
+}
+
+func (p *surfacePattern) cleanup() {
+	if p.surface != nil {
+		p.surface.Destroy()
 	}
-	
-	func (p *surfacePattern) cleanup() {
-		if p.surface != nil {
-			p.surface.Destroy()
-		}
+}
+
+func (p *surfacePattern) GetSurface() Surface {
+	return p.surface.Reference()
+}
+
+// Mesh pattern implementation
+
+func (p *meshPattern) getPattern() Pattern {
+	return p
+}
+
+func (p *meshPattern) cleanup() {
+	// No special cleanup needed for mesh pattern
+}
+
+// Raster Source pattern implementation
+
+func (p *rasterSourcePattern) getPattern() Pattern {
+	return p
+}
+
+func (p *rasterSourcePattern) cleanup() {
+	if p.surface != nil && p.releaseFunc != nil {
+		p.releaseFunc(p, p.surface)
 	}
-	
-	func (p *surfacePattern) GetSurface() Surface {
-		return p.surface.Reference()
-	}
-	
-	// Mesh pattern implementation
-	
-	func (p *meshPattern) getPattern() Pattern {
-		return p
-	}
-	
-	func (p *meshPattern) cleanup() {
-		// No special cleanup needed for mesh pattern
-	}
-	
-	// Raster Source pattern implementation
-	
-	func (p *rasterSourcePattern) getPattern() Pattern {
-		return p
-	}
-	
-	func (p *rasterSourcePattern) cleanup() {
-		if p.surface != nil && p.releaseFunc != nil {
-			p.releaseFunc(p, p.surface)
-		}
-	}
-	
-	// linearGradient implementation
+}
+
+// linearGradient implementation
 func (p *gradientPattern) AddColorStopRGB(offset, red, green, blue float64) error {
 	return p.AddColorStopRGBA(offset, red, green, blue, 1.0)
 }
@@ -646,23 +644,23 @@ func (p *gradientPattern) AddColorStopRGBA(offset, red, green, blue, alpha float
 	if p.status != StatusSuccess {
 		return newError(p.status, "")
 	}
-	
+
 	if offset < 0.0 || offset > 1.0 {
 		p.status = StatusInvalidIndex
 		return newError(p.status, "offset must be between 0.0 and 1.0")
 	}
-	
+
 	// TODO: Add support for HSV interpolation as suggested in the document.
 	// This would require a separate function or flag to determine the interpolation mode.
-	
+
 	stop := gradientStop{
 		offset: offset,
-		red: red,
-		green: green,
-		blue: blue,
-		alpha: alpha,
+		red:    red,
+		green:  green,
+		blue:   blue,
+		alpha:  alpha,
 	}
-	
+
 	// Insert in sorted order by offset
 	inserted := false
 	for i, existingStop := range p.stops {
@@ -673,12 +671,12 @@ func (p *gradientPattern) AddColorStopRGBA(offset, red, green, blue, alpha float
 			break
 		}
 	}
-	
-		if !inserted {
-			p.stops = append(p.stops, stop)
-		}
-		return nil
+
+	if !inserted {
+		p.stops = append(p.stops, stop)
 	}
+	return nil
+}
 
 func (p *gradientPattern) GetColorStopCount() int {
 	return len(p.stops)
@@ -688,7 +686,7 @@ func (p *gradientPattern) GetColorStop(index int) (offset, red, green, blue, alp
 	if index < 0 || index >= len(p.stops) {
 		return 0, 0, 0, 0, 0, StatusInvalidIndex
 	}
-	
+
 	stop := p.stops[index]
 	return stop.offset, stop.red, stop.green, stop.blue, stop.alpha, StatusSuccess
 }
@@ -715,7 +713,7 @@ func (p *radialGradient) getPattern() Pattern {
 }
 
 func (p *radialGradient) Reference() Pattern {
-	atomic.AddInt32(&p.refCount, 1)  
+	atomic.AddInt32(&p.refCount, 1)
 	return p
 }
 
@@ -731,7 +729,7 @@ type SolidPattern interface {
 }
 
 type SurfacePattern interface {
-	Pattern  
+	Pattern
 	GetSurface() Surface
 }
 

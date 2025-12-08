@@ -1,74 +1,74 @@
 package cairo
 
 import (
+	"bytes"
 	"math"
+	"strings"
 	"sync/atomic"
-		"unsafe"
-		"strings"
-	
+	"unsafe"
+
+	"github.com/go-text/typesetting/di"
 	"github.com/go-text/typesetting/font"
-		"github.com/go-text/typesetting/shaping"
-		"golang.org/x/image/font/gofont/goregular"
-		"golang.org/x/image/font/gofont/gobold"
-		"golang.org/x/image/font/gofont/goitalic"
-		"golang.org/x/image/font/gofont/gobolditalic"
-		"golang.org/x/image/math/fixed"
-	
-	"github.com/novvoo/go-cairo/pkg/cairo/cgo" // Import CGo bindings
-	"C" // Import C for CGo
-	)
+	"github.com/go-text/typesetting/opentype/api"
+	"github.com/go-text/typesetting/shaping"
+	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/font/gofont/gobolditalic"
+	"golang.org/x/image/font/gofont/goitalic"
+	"golang.org/x/image/font/gofont/goregular"
+	"golang.org/x/image/math/fixed"
+)
 
-	var defaultFont font.Face
-	
-	func init() {
-		// Load Go Regular as a fallback
-		f, err := font.ParseTTF(goregular.TTF)
-		if err == nil {
-			defaultFont = f
-		}
-	}
+var defaultFont font.Face
 
-	// fontLookupTable is a simple map for toy font face lookup
-	var fontLookupTable = map[string]map[FontSlant]map[FontWeight]font.Face{
-		"sans": {
-			FontSlantNormal: {
-				FontWeightNormal: loadGoFont(goregular.TTF),
-				FontWeightBold:   loadGoFont(gobold.TTF),
-			},
-			FontSlantItalic: {
-				FontWeightNormal: loadGoFont(goitalic.TTF),
-				FontWeightBold:   loadGoFont(gobolditalic.TTF),
-			},
-		},
-		"serif": {
-			FontSlantNormal: {
-				FontWeightNormal: loadGoFont(goregular.TTF),
-				FontWeightBold:   loadGoFont(gobold.TTF),
-			},
-			FontSlantItalic: {
-				FontWeightNormal: loadGoFont(goitalic.TTF),
-				FontWeightBold:   loadGoFont(gobolditalic.TTF),
-			},
-		},
-		"monospace": {
-			FontSlantNormal: {
-				FontWeightNormal: loadGoFont(goregular.TTF),
-				FontWeightBold:   loadGoFont(gobold.TTF),
-			},
-			FontSlantItalic: {
-				FontWeightNormal: loadGoFont(goitalic.TTF),
-				FontWeightBold:   loadGoFont(gobolditalic.TTF),
-			},
-		},
+func init() {
+	// Load Go Regular as a fallback
+	f, err := font.ParseTTF(bytes.NewReader(goregular.TTF))
+	if err == nil {
+		defaultFont = f
 	}
+}
 
-	func loadGoFont(ttf []byte) font.Face {
-		f, err := font.ParseTTF(ttf)
-		if err != nil {
-			return nil
-		}
-		return f
+// fontLookupTable is a simple map for toy font face lookup
+var fontLookupTable = map[string]map[FontSlant]map[FontWeight]font.Face{
+	"sans": {
+		FontSlantNormal: {
+			FontWeightNormal: loadGoFont(goregular.TTF),
+			FontWeightBold:   loadGoFont(gobold.TTF),
+		},
+		FontSlantItalic: {
+			FontWeightNormal: loadGoFont(goitalic.TTF),
+			FontWeightBold:   loadGoFont(gobolditalic.TTF),
+		},
+	},
+	"serif": {
+		FontSlantNormal: {
+			FontWeightNormal: loadGoFont(goregular.TTF),
+			FontWeightBold:   loadGoFont(gobold.TTF),
+		},
+		FontSlantItalic: {
+			FontWeightNormal: loadGoFont(goitalic.TTF),
+			FontWeightBold:   loadGoFont(gobolditalic.TTF),
+		},
+	},
+	"monospace": {
+		FontSlantNormal: {
+			FontWeightNormal: loadGoFont(goregular.TTF),
+			FontWeightBold:   loadGoFont(gobold.TTF),
+		},
+		FontSlantItalic: {
+			FontWeightNormal: loadGoFont(goitalic.TTF),
+			FontWeightBold:   loadGoFont(gobolditalic.TTF),
+		},
+	},
+}
+
+func loadGoFont(ttf []byte) font.Face {
+	f, err := font.ParseTTF(bytes.NewReader(ttf))
+	if err != nil {
+		return nil
 	}
+	return f
+}
 
 // ---------------- Font options (cairo_font_options_t) ----------------
 
@@ -346,7 +346,7 @@ type toyFontFace struct {
 	family string
 	slant  FontSlant
 	weight FontWeight
-	
+
 	// Real font face from go-text/typesetting
 	realFace font.Face
 }
@@ -362,38 +362,38 @@ func NewToyFontFace(family string, slant FontSlant, weight FontWeight) FontFace 
 		},
 		family: family,
 		slant:  slant,
-			weight: weight,
-		}
+		weight: weight,
+	}
 
-		// Simple font lookup based on family, slant, and weight
-		familyKey := strings.ToLower(ff.family)
-		if familyKey == "sans-serif" || familyKey == "sans" {
-			familyKey = "sans"
-		} else if familyKey == "serif" {
-			familyKey = "serif"
-		} else if familyKey == "monospace" {
-			familyKey = "monospace"
-		} else {
-			familyKey = "sans" // Fallback to sans
-		}
+	// Simple font lookup based on family, slant, and weight
+	familyKey := strings.ToLower(ff.family)
+	if familyKey == "sans-serif" || familyKey == "sans" {
+		familyKey = "sans"
+	} else if familyKey == "serif" {
+		familyKey = "serif"
+	} else if familyKey == "monospace" {
+		familyKey = "monospace"
+	} else {
+		familyKey = "sans" // Fallback to sans
+	}
 
-		if slants, ok := fontLookupTable[familyKey]; ok {
-			if weights, ok := slants[ff.slant]; ok {
-				if face, ok := weights[ff.weight]; ok && face != nil {
-					ff.realFace = face
-				}
+	if slants, ok := fontLookupTable[familyKey]; ok {
+		if weights, ok := slants[ff.slant]; ok {
+			if face, ok := weights[ff.weight]; ok && face != nil {
+				ff.realFace = face
 			}
 		}
+	}
 
-		// Final fallback
-		if ff.realFace == nil {
-			ff.realFace = defaultFont
-		}
+	// Final fallback
+	if ff.realFace == nil {
+		ff.realFace = defaultFont
+	}
 
-		if ff.realFace == nil {
-			ff.status = StatusFontTypeMismatch
-		}
-		return ff
+	if ff.realFace == nil {
+		ff.status = StatusFontTypeMismatch
+	}
+	return ff
 }
 
 // FontFace interface implementation for toyFontFace.
@@ -575,7 +575,7 @@ func (s *scaledFont) getRealFace() (font.Face, Status) {
 // Extents returns font extents using the real font face.
 func (s *scaledFont) Extents() *FontExtents {
 	fe := &FontExtents{}
-	
+
 	realFace, status := s.getRealFace()
 	if status != StatusSuccess {
 		// Fallback to toy extents if real face is not available
@@ -587,29 +587,30 @@ func (s *scaledFont) Extents() *FontExtents {
 	// We need to calculate the point size from the font matrix.
 	// Cairo's font matrix is typically a scale matrix (size in user space units).
 	// We'll use the average of the scale factors as the nominal size.
-	
+
 	// Scale factor from font matrix
 	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
 	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
-	
+
 	// Font metrics are in font units (FUnits). We need to convert them to user space units.
 	// FUnits to user space: FUnits * (scale / unitsPerEm)
-	unitsPerEm := float64(realFace.UnitsPerEm())
-	
+	unitsPerEm := float64(realFace.Upem())
+
 	// Ascent, Descent, Height in FUnits
-	ascentFUnits := float64(realFace.Ascender())
-	descentFUnits := float64(realFace.Descender())
-	lineGapFUnits := float64(realFace.LineGap())
-	
+	metrics, _ := realFace.FontHExtents()
+	ascentFUnits := float64(metrics.Ascender)
+	descentFUnits := float64(metrics.Descender)
+	lineGapFUnits := float64(metrics.LineGap)
+
 	// Convert to user space units
 	fe.Ascent = ascentFUnits * sx / unitsPerEm
 	fe.Descent = -descentFUnits * sy / unitsPerEm // Descent is negative in FUnits, cairo expects positive
-	fe.Height = fe.Ascent + fe.Descent + lineGapFUnits * sy / unitsPerEm
-	
+	fe.Height = fe.Ascent + fe.Descent + lineGapFUnits*sy/unitsPerEm
+
 	// Max advance is a guess without shaping a string
 	fe.MaxXAdvance = sx
 	fe.MaxYAdvance = 0
-	
+
 	return fe
 }
 
@@ -634,43 +635,44 @@ func (s *scaledFont) toyExtentsFallback() *FontExtents {
 // TextExtents computes text extents using the real font face and shaping.
 func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
 	ext := &TextExtents{}
-	
+
 	realFace, status := s.getRealFace()
 	if status != StatusSuccess {
 		return s.toyTextExtentsFallback(utf8)
 	}
 
 	// 1. Shape the text
-	shaper := shaping.NewShaper(realFace)
-	output := shaper.Shape(utf8)
-	
+	runes := []rune(utf8)
+	input := shaping.Input{
+		Text:      runes,
+		RunStart:  0,
+		RunEnd:    len(runes),
+		Direction: di.DirectionLTR,
+		Face:      realFace,
+		Size:      fixed.I(12), // Default size, will be scaled by font matrix
+	}
+	output := (&shaping.HarfbuzzShaper{}).Shape(input)
+
 	// 2. Calculate extents from shaped output
-	// We need to convert fixed.Int26_6 to float64 (divide by 64)
-	
-	// Bounding box in FUnits
-	bbox := output.Bounds()
-	
 	// Scale factor from font matrix
 	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
 	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
-	unitsPerEm := float64(realFace.UnitsPerEm())
-	
-	// Convert FUnits to user space units
-	funitToUser := func(f fixed.Int26_6, scale float64) float64 {
-		return float64(f.Round()) * scale / unitsPerEm
+	unitsPerEm := float64(realFace.Upem())
+
+	// Calculate total advance and bounds
+	var totalAdvance fixed.Int26_6
+	for _, g := range output.Glyphs {
+		totalAdvance += g.XAdvance
 	}
-	
-	// Extents
-	ext.XBearing = funitToUser(bbox.Min.X, sx)
-	ext.YBearing = funitToUser(bbox.Min.Y, sy)
-	ext.Width = funitToUser(bbox.Dx(), sx)
-	ext.Height = funitToUser(bbox.Dy(), sy)
-	
-	// Advance
-	lastGlyph := output.Glyphs[len(output.Glyphs)-1]
-	ext.XAdvance = float64(lastGlyph.XAdvance) * sx / unitsPerEm
-	ext.YAdvance = float64(lastGlyph.YAdvance) * sy / unitsPerEm
-	
+
+	// Convert to user space units
+	ext.XAdvance = float64(totalAdvance) / 64.0 * sx / unitsPerEm
+	ext.YAdvance = 0
+	ext.Width = ext.XAdvance
+	ext.Height = sy
+	ext.XBearing = 0
+	ext.YBearing = -sy * 0.8
+
 	return ext
 }
 
@@ -718,71 +720,102 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 		return nil, newError(status, "failed to get real font face")
 	}
 
-	// Load the glyph from the font face
-	glyph, err := realFace.LoadGlyph(font.GID(glyphID))
-	if err != nil {
-		return nil, newError(StatusFontTypeMismatch, err.Error())
+	// Load the glyph outline from the font face
+	gid := api.GID(glyphID)
+	glyphData := realFace.GlyphData(gid)
+
+	// Extract outline from glyph data
+	outline, ok := glyphData.(api.GlyphOutline)
+	if !ok {
+		return nil, newError(StatusFontTypeMismatch, "glyph has no outline")
 	}
 
-	// Convert the font.Path to cairo.Path
+	// Convert the outline to cairo.Path
 	cairoPath := &Path{
 		Status: StatusSuccess,
 		Data:   make([]PathData, 0),
 	}
 
-	// The font.Path is a sequence of draw commands (MoveTo, LineTo, CurveTo, ClosePath)
-	// We need to convert these to cairo's PathData structure.
-	// The path coordinates are in FUnits. We need to scale them by the font matrix.
-
 	// Scale factor from font matrix
 	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
 	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
-	unitsPerEm := float64(realFace.UnitsPerEm())
+	unitsPerEm := float64(realFace.Upem())
 
 	// FUnits to user space: FUnits * (scale / unitsPerEm)
-	funitToUser := func(f float64, scale float64) float64 {
-		return f * scale / unitsPerEm
+	funitToUser := func(f float32, scale float64) float64 {
+		return float64(f) * scale / unitsPerEm
 	}
 
 	// Iterate over the path segments
-	var currentX, currentY float64
-	for _, seg := range glyph.Path {
+	for _, seg := range outline.Segments {
 		switch seg.Op {
-		case font.MoveTo:
-			p := seg.Points[0]
-			currentX = funitToUser(float64(p.X), sx)
-			currentY = funitToUser(float64(p.Y), sy)
-			cairoPath.Data = append(cairoPath.Data, PathData{
+		case api.SegmentOpMoveTo:
+			pd := PathData{
 				Type: PathMoveTo,
-				Points: []Point{{X: currentX, Y: currentY}},
-			})
-		case font.LineTo:
-			p := seg.Points[0]
-			currentX = funitToUser(float64(p.X), sx)
-			currentY = funitToUser(float64(p.Y), sy)
-			cairoPath.Data = append(cairoPath.Data, PathData{
+				Points: []Point{
+					{
+						X: funitToUser(seg.Args[0].X, sx),
+						Y: funitToUser(seg.Args[0].Y, sy),
+					},
+				},
+			}
+			cairoPath.Data = append(cairoPath.Data, pd)
+		case api.SegmentOpLineTo:
+			pd := PathData{
 				Type: PathLineTo,
-				Points: []Point{{X: currentX, Y: currentY}},
-			})
-		case font.CurveTo:
-			p1 := seg.Points[0]
-			p2 := seg.Points[1]
-			p3 := seg.Points[2]
-			currentX = funitToUser(float64(p3.X), sx)
-			currentY = funitToUser(float64(p3.Y), sy)
-			cairoPath.Data = append(cairoPath.Data, PathData{
+				Points: []Point{
+					{
+						X: funitToUser(seg.Args[0].X, sx),
+						Y: funitToUser(seg.Args[0].Y, sy),
+					},
+				},
+			}
+			cairoPath.Data = append(cairoPath.Data, pd)
+		case api.SegmentOpQuadTo:
+			// Convert quadratic to cubic Bezier
+			// For simplicity, we'll add the control point and end point
+			p1 := seg.Args[0]
+			p2 := seg.Args[1]
+			pd := PathData{
 				Type: PathCurveTo,
 				Points: []Point{
-					{X: funitToUser(float64(p1.X), sx), Y: funitToUser(float64(p1.Y), sy)},
-					{X: funitToUser(float64(p2.X), sx), Y: funitToUser(float64(p2.Y), sy)},
-					{X: currentX, Y: currentY},
+					{
+						X: funitToUser(p1.X, sx),
+						Y: funitToUser(p1.Y, sy),
+					},
+					{
+						X: funitToUser(p1.X, sx),
+						Y: funitToUser(p1.Y, sy),
+					},
+					{
+						X: funitToUser(p2.X, sx),
+						Y: funitToUser(p2.Y, sy),
+					},
 				},
-			})
-		case font.ClosePath:
-			cairoPath.Data = append(cairoPath.Data, PathData{
-				Type: PathClosePath,
-				Points: []Point{},
-			})
+			}
+			cairoPath.Data = append(cairoPath.Data, pd)
+		case api.SegmentOpCubeTo:
+			p1 := seg.Args[0]
+			p2 := seg.Args[1]
+			p3 := seg.Args[2]
+			pd := PathData{
+				Type: PathCurveTo,
+				Points: []Point{
+					{
+						X: funitToUser(p1.X, sx),
+						Y: funitToUser(p1.Y, sy),
+					},
+					{
+						X: funitToUser(p2.X, sx),
+						Y: funitToUser(p2.Y, sy),
+					},
+					{
+						X: funitToUser(p3.X, sx),
+						Y: funitToUser(p3.Y, sy),
+					},
+				},
+			}
+			cairoPath.Data = append(cairoPath.Data, pd)
 		}
 	}
 
@@ -798,14 +831,22 @@ func (s *scaledFont) GetGlyphs(utf8 string) (glyphs []Glyph, status Status) {
 	}
 
 	// 1. Shape the text
-	shaper := shaping.NewShaper(realFace)
-	output := shaper.Shape(utf8)
+	runes := []rune(utf8)
+	input := shaping.Input{
+		Text:      runes,
+		RunStart:  0,
+		RunEnd:    len(runes),
+		Direction: di.DirectionLTR,
+		Face:      realFace,
+		Size:      fixed.I(12),
+	}
+	output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
 	// 2. Convert shaped output to cairo's Glyph structures
 	glyphs = make([]Glyph, len(output.Glyphs))
 	for i, g := range output.Glyphs {
 		glyphs[i] = Glyph{
-			Index: uint64(g.ID),
+			Index: uint64(g.GlyphID),
 			X:     0, // Position is not relevant for subsetting
 			Y:     0,
 		}
@@ -822,46 +863,52 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 	if status != StatusSuccess {
 		return s.toyTextToGlyphsFallback(x, y, utf8)
 	}
-	
+
 	// 1. Shape the text
-	shaper := shaping.NewShaper(realFace)
-	output := shaper.Shape(utf8)
-	
+	runes := []rune(utf8)
+	input := shaping.Input{
+		Text:      runes,
+		RunStart:  0,
+		RunEnd:    len(runes),
+		Direction: di.DirectionLTR,
+		Face:      realFace,
+		Size:      fixed.I(12),
+	}
+	output := (&shaping.HarfbuzzShaper{}).Shape(input)
+
 	// 2. Convert shaped output to cairo's Glyph and TextCluster structures
-	
+
 	// Scale factor from font matrix
 	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
 	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
-	unitsPerEm := float64(realFace.UnitsPerEm())
-	
-	// FUnits to user space: FUnits * (scale / unitsPerEm)
-	funitToUser := func(f float64, scale float64) float64 {
-		return f * scale / unitsPerEm
-	}
-	
+	unitsPerEm := float64(realFace.Upem())
+
 	// Glyphs
 	glyphs = make([]Glyph, len(output.Glyphs))
+	var curX, curY float64
 	for i, g := range output.Glyphs {
 		// Position is in user space, relative to the start point (x, y)
 		glyphs[i] = Glyph{
-			Index: uint64(g.ID),
-			X:     x + funitToUser(float64(g.XOffset), sx) + funitToUser(float64(g.X), sx),
-			Y:     y - funitToUser(float64(g.YOffset), sy) - funitToUser(float64(g.Y), sy), // Y is inverted in cairo
+			Index: uint64(g.GlyphID),
+			X:     x + curX + float64(g.XOffset)/64.0*sx/unitsPerEm,
+			Y:     y + curY - float64(g.YOffset)/64.0*sy/unitsPerEm,
 		}
+		curX += float64(g.XAdvance) / 64.0 * sx / unitsPerEm
+		curY += float64(g.YAdvance) / 64.0 * sy / unitsPerEm
 	}
-	
-	// Clusters
-	clusters = make([]TextCluster, len(output.Clusters))
-	for i, c := range output.Clusters {
+
+	// Clusters - simplified mapping (one cluster per glyph)
+	clusters = make([]TextCluster, len(output.Glyphs))
+	for i := range output.Glyphs {
 		clusters[i] = TextCluster{
-			NumBytes:  int(c.NumBytes),
-			NumGlyphs: int(c.NumGlyphs),
+			NumBytes:  1, // Simplified: assume 1 byte per glyph
+			NumGlyphs: 1,
 		}
 	}
-	
+
 	// Cluster flags (simplified)
 	clusterFlags = 0
-	
+
 	return glyphs, clusters, clusterFlags, StatusSuccess
 }
 

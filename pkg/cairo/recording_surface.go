@@ -2,7 +2,6 @@ package cairo
 
 import (
 	"runtime"
-	"sync/atomic"
 )
 
 // RecordingSurface is a surface that records all drawing operations.
@@ -14,7 +13,7 @@ type RecordingSurface interface {
 // recordingSurface implements the RecordingSurface interface.
 type recordingSurface struct {
 	baseSurface
-	
+
 	// The recorded operations will be stored here.
 	// Since the operations are complex (e.g., SetSource, Stroke, MoveTo),
 	// we will store them as a list of function calls or a custom struct
@@ -23,32 +22,32 @@ type recordingSurface struct {
 	// and assume the Context is modified to handle the recording.
 	// A full implementation would require defining a complex command pattern.
 	// For now, we will focus on the surface structure and the Replay method signature.
-	
+
 	extents Rectangle
-	
+
 	// The list of recorded operations (placeholder)
 	operations []interface{}
 }
 
 // NewRecordingSurface creates a new recording surface.
-func NewRecordingSurface(content Content, width, height float64) RecordingSurface {
+func NewRecordingSurface(content Content, width, height float64) Surface {
 	surface := &recordingSurface{
 		baseSurface: baseSurface{
-			refCount:    1,
-			status:      StatusSuccess,
-			surfaceType: SurfaceTypeRecording,
-			content:     content,
-			userData:    make(map[*UserDataKey]interface{}),
-			fontOptions: &FontOptions{},
-			deviceScaleX: 1.0,
-			deviceScaleY: 1.0,
+			refCount:            1,
+			status:              StatusSuccess,
+			surfaceType:         SurfaceTypeRecording,
+			content:             content,
+			userData:            make(map[*UserDataKey]interface{}),
+			fontOptions:         &FontOptions{},
+			deviceScaleX:        1.0,
+			deviceScaleY:        1.0,
 			fallbackResolutionX: 72.0,
 			fallbackResolutionY: 72.0,
 		},
-		extents: Rectangle{0, 0, width, height},
+		extents:    Rectangle{0, 0, width, height},
 		operations: make([]interface{}, 0),
 	}
-	
+
 	runtime.SetFinalizer(surface, (*recordingSurface).Destroy)
 	return surface
 }

@@ -56,17 +56,17 @@ type Surface interface {
 
 // Context represents cairo_t - drawing context interface
 type Context interface {
-		// Reference management
-		Reference() Context
-		Destroy()
-		GetReferenceCount() int
+	// Reference management
+	Reference() Context
+	Destroy()
+	GetReferenceCount() int
 
-		// Status
-		Status() Status
+	// Status
+	Status() Status
 
-		// Target surface
-		GetTarget() Surface
-		GetGroupTarget() Surface
+	// Target surface
+	GetTarget() Surface
+	GetGroupTarget() Surface
 
 	// User data
 	SetUserData(key *UserDataKey, userData unsafe.Pointer, destroy DestroyFunc) Status
@@ -300,55 +300,38 @@ type ScaledFont interface {
 
 	// Text measurement
 	Extents() *FontExtents
-TextExtents(utf8 string) *TextExtents
-		GlyphExtents(glyphs []Glyph) *TextExtents
-		GlyphPath(glyphID uint64) (*Path, error)
-		TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status)
-		GetGlyphs(utf8 string) (glyphs []Glyph, status Status)
+	TextExtents(utf8 string) *TextExtents
+	GlyphExtents(glyphs []Glyph) *TextExtents
+	GlyphPath(glyphID uint64) (*Path, error)
+	TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status)
+	GetGlyphs(utf8 string) (glyphs []Glyph, status Status)
+}
+
+// Additional data structures
+
+// PathDataType represents cairo_path_data_type_t - path segment types
+type PathDataType int
+
+const (
+	PathMoveTo PathDataType = iota
+	PathLineTo
+	PathCurveTo
+	PathClosePath
+)
+
+// PathData represents cairo_path_data_t - path segment data
+type PathData struct {
+	Type   PathDataType
+	Points []Point
+}
+
+// Path represents cairo_path_t - path data structure
+type Path struct {
+	Status Status
+	Data   []PathData
 }
 
 // Additional enum types for interfaces
-
-// SurfaceType represents cairo_surface_type_t
-type SurfaceType int
-
-const (
-	SurfaceTypeImage SurfaceType = iota
-	SurfaceTypePDF
-	SurfaceTypePS
-	SurfaceTypeXlib
-	SurfaceTypeXcb
-	SurfaceTypeGlitz
-	SurfaceTypeQuartz
-	SurfaceTypeWin32
-	SurfaceTypeBeOS
-	SurfaceTypeDirectFB
-	SurfaceTypeSVG
-	SurfaceTypeOS2
-	SurfaceTypeWin32Printing
-	SurfaceTypeQtWin32
-	SurfaceTypeRecording
-	SurfaceTypeVG
-	SurfaceTypeGL
-	SurfaceTypeDRM
-	SurfaceTypeTee
-	SurfaceTypeXML
-	SurfaceTypeSkia
-	SurfaceTypeSubsurface
-	SurfaceTypeCogl
-)
-
-// PatternType represents cairo_pattern_type_t
-type PatternType int
-
-const (
-	PatternTypeSolid PatternType = iota
-	PatternTypeSurface
-	PatternTypeLinear
-	PatternTypeRadial
-	PatternTypeMesh
-	PatternTypeRasterSource
-)
 
 // DeviceType represents cairo_device_type_t
 type DeviceType int
@@ -376,58 +359,6 @@ const (
 	FontTypeUser
 	FontTypeDwrite
 )
-
-// Extend represents cairo_extend_t - pattern extend modes
-type Extend int
-
-const (
-	ExtendNone Extend = iota
-	ExtendRepeat
-	ExtendReflect
-	ExtendPad
-)
-
-// Filter represents cairo_filter_t - pattern filter modes
-type Filter int
-
-const (
-	FilterFast Filter = iota
-	FilterGood
-	FilterBest
-	FilterNearest
-	FilterBilinear
-	FilterGaussian
-)
-
-// Additional data structures
-
-// Path represents cairo_path_t
-type Path struct {
-	Status  Status
-	Data    []*PathData
-	NumData int
-}
-
-// PathDataType represents cairo_path_data_type_t
-type PathDataType int
-
-const (
-	PathMoveTo PathDataType = iota
-	PathLineTo
-	PathCurveTo
-	PathClosePath
-)
-
-// PathData represents cairo_path_data_t
-type PathData struct {
-	Header struct {
-		Type   PathDataType
-		Length int
-	}
-	Point struct {
-		X, Y float64
-	}
-}
 
 // RectangleList represents cairo_rectangle_list_t
 type RectangleList struct {

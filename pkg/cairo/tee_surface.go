@@ -2,7 +2,6 @@ package cairo
 
 import (
 	"runtime"
-	"sync/atomic"
 )
 
 // TeeSurface is a surface that redirects drawing operations to multiple target surfaces.
@@ -15,7 +14,7 @@ type TeeSurface interface {
 // teeSurface implements the TeeSurface interface.
 type teeSurface struct {
 	baseSurface
-	
+
 	// The list of target surfaces
 	targets []Surface
 }
@@ -24,20 +23,20 @@ type teeSurface struct {
 func NewTeeSurface() TeeSurface {
 	surface := &teeSurface{
 		baseSurface: baseSurface{
-			refCount:    1,
-			status:      StatusSuccess,
-			surfaceType: SurfaceTypeTee,
-			content:     ContentColorAlpha, // Tee surface content is the union of its targets
-			userData:    make(map[*UserDataKey]interface{}),
-			fontOptions: &FontOptions{},
-			deviceScaleX: 1.0,
-			deviceScaleY: 1.0,
+			refCount:            1,
+			status:              StatusSuccess,
+			surfaceType:         SurfaceTypeTee,
+			content:             ContentColorAlpha, // Tee surface content is the union of its targets
+			userData:            make(map[*UserDataKey]interface{}),
+			fontOptions:         &FontOptions{},
+			deviceScaleX:        1.0,
+			deviceScaleY:        1.0,
 			fallbackResolutionX: 72.0,
 			fallbackResolutionY: 72.0,
 		},
 		targets: make([]Surface, 0),
 	}
-	
+
 	runtime.SetFinalizer(surface, (*teeSurface).Destroy)
 	return surface
 }
@@ -69,7 +68,7 @@ func (s *teeSurface) RemoveSurface(target Surface) error {
 	if target == nil {
 		return newError(StatusNullPointer, "target surface is nil")
 	}
-	
+
 	for i, t := range s.targets {
 		// Check if the target is the same object
 		if t == target {
@@ -79,8 +78,8 @@ func (s *teeSurface) RemoveSurface(target Surface) error {
 			return nil
 		}
 	}
-	
-	return newError(StatusInvalidSurface, "target surface not found in tee surface")
+
+	return newError(StatusInvalidIndex, "target surface not found in tee surface")
 }
 
 // GetTargets returns the list of target surfaces.
