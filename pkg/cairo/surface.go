@@ -1,6 +1,8 @@
 package cairo
 
 import (
+	"bufio"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -540,6 +542,17 @@ type psSurface struct {
 	width, height float64
 	pageCount     int
 	inPage        bool
+	file          *os.File
+	writer        *bufio.Writer
+}
+
+// scriptSurface implements Script surface (JSON serialization)
+type scriptSurface struct {
+	baseSurface
+	filename      string
+	width, height float64
+	file          *os.File
+	commands      []map[string]interface{}
 }
 
 // NewPDFSurface creates a new PDF surface
@@ -592,6 +605,43 @@ func NewPSSurface(filename string, widthInPoints, heightInPoints float64) Surfac
 		return newSurfaceInError(StatusInvalidSize)
 	}
 
+	file, err := os.Create(filename)
+	if err != nil {
+		return newSurfaceInError(StatusWriteError)
+	}
+
+	writer := bufio.NewWriter(file)
+
+	header := fmt.Sprintf(`%%!PS-Adobe-3.0
+%%Creator: go-cairo
+%%Title: %s
+%%Pages: (atend)
+%%BoundingBox: 0 0 %.0f %.0f
+%%EndComments
+
+gsave
+1 setlinecap
+1 setlinejoin
+10 setmiterlimit
+
+/newfont { /Helvetica findfont exch scalefont setfont } def
+10 newfont
+
+`, filename, widthInPoints, heightInPoints)
+
+	_, err = writer.WriteString(header)
+	if err != nil {
+		file.Close()
+		os.Remove(filename)
+		return newSurfaceInError(StatusWriteError)
+	}
+	err = writer.Flush()
+	if err != nil {
+		file.Close()
+		os.Remove(filename)
+		return newSurfaceInError(StatusWriteError)
+	}
+
 	surface := &psSurface{
 		baseSurface: baseSurface{
 			refCount:            1,
@@ -605,13 +655,19 @@ func NewPSSurface(filename string, widthInPoints, heightInPoints float64) Surfac
 			fallbackResolutionX: 72.0,
 			fallbackResolutionY: 72.0,
 		},
-		filename: filename,
-		width:    widthInPoints,
-		height:   heightInPoints,
+		filename:  filename,
+		width:     widthInPoints,
+		height:    heightInPoints,
+		file:      file,
+		writer:    writer,
+		pageCount: 0,
+		inPage:    false,
 	}
 
 	surface.deviceTransform.InitIdentity()
 	surface.deviceTransformInverse.InitIdentity()
+
+	runtime.SetFinalizer(surface, (*psSurface).Destroy)
 
 	return surface
 }
@@ -651,6 +707,13 @@ func (s *psSurface) Reference() Surface {
 	return s
 }
 
+func (s *psSurface) Destroy() {
+	if atomic.AddInt32(&s.refCount, -1) == 0 {
+		s.finishConcrete()
+		s.cleanup()
+	}
+}
+
 func (s *psSurface) GetWidth() float64 {
 	return s.width
 }
@@ -660,21 +723,109 @@ func (s *psSurface) GetHeight() float64 {
 }
 
 func (s *psSurface) CopyPage() {
-	// PostScript copypage command - implementation would write to file
+	if s.writer != nil {
+		s.writer.WriteString("copypage\n")
+		s.writer.Flush()
+	}
 	s.pageCount++
 }
 
 func (s *psSurface) ShowPage() {
-	// PostScript showpage command - implementation would write to file
+	if s.writer != nil {
+		s.writer.WriteString("showpage grestore grestore\n")
+		s.writer.Flush()
+	}
 	s.inPage = false
 }
 
 func (s *psSurface) SetSize(widthInPoints, heightInPoints float64) {
 	s.width = widthInPoints
 	s.height = heightInPoints
+	if s.writer != nil {
+		s.writer.WriteString(fmt.Sprintf("%%%%PageBoundingBox: 0 0 %.0f %.0f\n", widthInPoints, heightInPoints))
+		s.writer.Flush()
+	}
 }
 
 func (s *psSurface) DscComment(comment string) {
-	// DSC (Document Structuring Convention) comment
-	// Implementation would write to file
+	if s.writer != nil {
+		s.writer.WriteString(fmt.Sprintf("%%%% %s\n", comment))
+		s.writer.Flush()
+	}
+}
+
+func (s *psSurface) finishConcrete() error {
+	if s.writer != nil {
+		s.writer.WriteString(fmt.Sprintf("\ngrestore\n%%%%Trailer\n%%%%Pages: %d\n%%%%EOF\n", s.pageCount))
+		s.writer.Flush()
+		s.writer = nil
+	}
+	if s.file != nil {
+		s.file.Close()
+		s.file = nil
+	}
+	return nil
+}
+
+// NewScriptSurface creates a new Script surface for JSON serialization
+func NewScriptSurface(filename string, width, height float64) Surface {
+	if width <= 0 || height <= 0 {
+		return newSurfaceInError(StatusInvalidSize)
+	}
+
+	file, err := os.Create(filename)
+	if err != nil {
+		return newSurfaceInError(StatusWriteError)
+	}
+
+	surface := &scriptSurface{
+		baseSurface: baseSurface{
+			refCount:            1,
+			status:              StatusSuccess,
+			surfaceType:         SurfaceTypeScript,
+			content:             ContentColorAlpha,
+			userData:            make(map[*UserDataKey]interface{}),
+			fontOptions:         NewFontOptions(),
+			deviceScaleX:        1.0,
+			deviceScaleY:        1.0,
+			fallbackResolutionX: 72.0,
+			fallbackResolutionY: 72.0,
+		},
+		filename: filename,
+		width:    width,
+		height:   height,
+		file:     file,
+		commands: make([]map[string]interface{}, 0),
+	}
+
+	surface.deviceTransform.InitIdentity()
+	surface.deviceTransformInverse.InitIdentity()
+
+	runtime.SetFinalizer(surface, (*scriptSurface).Destroy)
+
+	return surface
+}
+
+func (s *scriptSurface) Reference() Surface {
+	atomic.AddInt32(&s.refCount, 1)
+	return s
+}
+
+func (s *scriptSurface) Destroy() {
+	if atomic.AddInt32(&s.refCount, -1) == 0 {
+		s.finishConcrete()
+		s.cleanup()
+	}
+}
+
+func (s *scriptSurface) GetWidth() float64 {
+	return s.width
+}
+
+func (s *scriptSurface) GetHeight() float64 {
+	return s.height
+}
+
+func (s *scriptSurface) AddCommand(cmd map[string]interface{}) {
+	s.commands = append(s.commands, cmd)
 }
