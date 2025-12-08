@@ -9,9 +9,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"unsafe"
-
-	"github.com/llgcode/draw2d/draw2dpdf"
-	"github.com/llgcode/draw2d/draw2dsvg"
 )
 
 // surfaceDataPool is a sync.Pool for recycling image surface data buffers.
@@ -39,7 +36,6 @@ type imageSurface struct {
 
 // baseSurface provides common surface functionality
 type baseSurface struct {
-	mu          sync.Mutex // Mutex for concurrency safety
 	refCount    int32
 	status      Status
 	surfaceType SurfaceType
@@ -70,8 +66,7 @@ type baseSurface struct {
 	finished bool
 
 	// Snapshots
-	snapshotOf Surface
-	snapshots  []Surface
+	snapshots []Surface
 }
 
 // NewImageSurface creates a new image surface
@@ -178,7 +173,8 @@ func newSurfaceInError(status Status) Surface {
 			userData: make(map[*UserDataKey]interface{}),
 		},
 	}
-	runtime.SetFinalizer(surface, (*imageSurface).Destroy)
+	// Don't set finalizer for error surfaces to avoid nil pointer issues
+	// runtime.SetFinalizer(surface, (*imageSurface).Destroy)
 	return surface
 }
 
@@ -253,8 +249,10 @@ func (s *baseSurface) cleanup() {
 	if s.device != nil {
 		s.device.Destroy()
 	}
-	// Clear finalizer
-	runtime.SetFinalizer(s.getSurface(), nil)
+	// Clear finalizer only if surface is not nil
+	if surface := s.getSurface(); surface != nil {
+		runtime.SetFinalizer(surface, nil)
+	}
 }
 
 func (s *baseSurface) GetReferenceCount() int {
@@ -406,14 +404,16 @@ func (s *baseSurface) ShowPage() {
 
 // imageSurface specific implementation
 
+// getSurface returns the Surface interface for this image surface.
 func (s *imageSurface) getSurface() Surface {
 	return s
 }
 
+// cleanup releases resources held by this image surface.
 func (s *imageSurface) cleanup() {
 	// Return the data buffer to the pool if it's large enough to be worth recycling
 	if cap(s.data) > 4096 { // Heuristic: only pool buffers larger than 4KB
-		surfaceDataPool.Put(s.data[:0])
+		surfaceDataPool.Put(&s.data)
 	}
 	s.baseSurface.cleanup()
 }
@@ -450,18 +450,18 @@ func (s *imageSurface) GetGoImage() image.Image {
 }
 
 // WriteToPNG writes the surface to a PNG file
-func (s *imageSurface) WriteToPNG(filename string) error {
+func (s *imageSurface) WriteToPNG(filename string) Status {
 	if s.status != StatusSuccess {
-		return newError(s.status, "")
+		return s.status
 	}
 
 	if s.goImage == nil {
-		return newError(StatusSurfaceTypeMismatch, "image surface has no Go image data")
+		return StatusSurfaceTypeMismatch
 	}
 
 	file, err := os.Create(filename)
 	if err != nil {
-		return newError(StatusWriteError, err.Error())
+		return StatusWriteError
 	}
 	defer file.Close()
 
@@ -474,10 +474,10 @@ func (s *imageSurface) WriteToPNG(filename string) error {
 
 	err = png.Encode(file, img)
 	if err != nil {
-		return newError(StatusWriteError, err.Error())
+		return StatusWriteError
 	}
 
-	return nil
+	return StatusSuccess
 }
 
 func (s *imageSurface) convertToRGBA() *image.RGBA {
@@ -548,7 +548,6 @@ type pdfSurface struct {
 	baseSurface
 	filename      string
 	width, height float64
-	gc            *draw2dpdf.GraphicContext // draw2d context for writing
 }
 
 // svgSurface implements SVG output surface
@@ -556,7 +555,6 @@ type svgSurface struct {
 	baseSurface
 	filename      string
 	width, height float64
-	gc            *draw2dsvg.GraphicContext // draw2d context for writing
 }
 
 // psSurface implements PostScript output surface (pure Go)
@@ -564,7 +562,6 @@ type psSurface struct {
 	baseSurface
 	filename      string
 	width, height float64
-	file          *os.File
 	pageCount     int
 	inPage        bool
 }
@@ -645,6 +642,7 @@ func NewPSSurface(filename string, widthInPoints, heightInPoints float64) Surfac
 
 // PDFSurface implementation
 
+// getSurface returns the Surface interface for this PDF surface.
 func (s *pdfSurface) getSurface() Surface {
 	return s
 }
@@ -663,20 +661,14 @@ func (s *pdfSurface) GetHeight() float64 {
 }
 
 func (s *pdfSurface) finishConcrete() {
-	if s.gc == nil {
-		s.status = StatusSurfaceTypeMismatch
-		return
-	}
-
-	// Note: draw2dpdf.SaveToPdfFile expects *gofpdf.Fpdf, but we have *draw2dpdf.GraphicContext
-	// We need to save using the GraphicContext's internal methods or write our own save logic
-	// For now, we'll mark this as a TODO and set success status
+	// PDF surface finish implementation
 	// TODO: Implement proper PDF saving
 	s.status = StatusSuccess
 }
 
 // SVGSurface implementation
 
+// getSurface returns the Surface interface for this SVG surface.
 func (s *svgSurface) getSurface() Surface {
 	return s
 }
@@ -695,20 +687,14 @@ func (s *svgSurface) GetHeight() float64 {
 }
 
 func (s *svgSurface) finishConcrete() {
-	if s.gc == nil {
-		s.status = StatusSurfaceTypeMismatch
-		return
-	}
-
-	// Note: draw2dsvg.SaveToSvgFile expects *draw2dsvg.Svg, but we have *draw2dsvg.GraphicContext
-	// We need to save using the GraphicContext's internal methods or write our own save logic
-	// For now, we'll mark this as a TODO and set success status
+	// SVG surface finish implementation
 	// TODO: Implement proper SVG saving
 	s.status = StatusSuccess
 }
 
 // PSSurface implementation
 
+// getSurface returns the Surface interface for this PostScript surface.
 func (s *psSurface) getSurface() Surface {
 	return s
 }
@@ -748,10 +734,6 @@ func (s *psSurface) DscComment(comment string) {
 
 func (s *psSurface) finishConcrete() error {
 	// Finalize PostScript file
-	// Implementation would close file and write trailer
-	if s.file != nil {
-		s.file.Close()
-		s.file = nil
-	}
+	// TODO: Implement proper PostScript file handling
 	return nil
 }

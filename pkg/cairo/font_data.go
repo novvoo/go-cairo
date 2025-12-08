@@ -12,6 +12,8 @@ import (
 // Note: go:embed paths are relative to the source file
 // Since we're in pkg/cairo/, we need to reference ../../assets/
 // However, go:embed doesn't support ../ paths, so we'll load fonts at runtime instead
+var dejaVuSansData []byte
+var goRegularData []byte
 
 // Font cache to avoid re-parsing fonts
 var (

@@ -69,14 +69,20 @@ func TestMatrixInvert(t *testing.T) {
 }
 
 func TestSurfaceCreation(t *testing.T) {
-	// Test valid surface creation
 	surface := NewImageSurface(FormatARGB32, 100, 200)
 	if surface.Status() != StatusSuccess {
 		t.Errorf("NewImageSurface failed with status %v", surface.Status())
 	}
+
+	// Test surface properties
 	if surface.GetType() != SurfaceTypeImage {
 		t.Errorf("Surface type incorrect, expected %v, got %v", SurfaceTypeImage, surface.GetType())
 	}
+	if surface.GetContent() != ContentColorAlpha {
+		t.Errorf("Surface content incorrect, expected %v, got %v", ContentColorAlpha, surface.GetContent())
+	}
+
+	// Test that surface implements ImageSurface interface
 	if imageSurface, ok := surface.(ImageSurface); ok {
 		if imageSurface.GetWidth() != 100 || imageSurface.GetHeight() != 200 {
 			t.Errorf("Surface dimensions incorrect, expected 100x200, got %dx%d", imageSurface.GetWidth(), imageSurface.GetHeight())

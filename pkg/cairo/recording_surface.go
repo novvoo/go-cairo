@@ -52,10 +52,12 @@ func NewRecordingSurface(content Content, width, height float64) Surface {
 	return surface
 }
 
+// getSurface returns the Surface interface for this recording surface.
 func (s *recordingSurface) getSurface() Surface {
 	return s
 }
 
+// cleanup releases resources held by this recording surface.
 func (s *recordingSurface) cleanup() {
 	// Clean up recorded operations if necessary
 	s.operations = nil

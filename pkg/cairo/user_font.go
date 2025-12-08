@@ -36,7 +36,8 @@ func NewUserFontFace() UserFontFace {
 	return face
 }
 
-func (f *userFontFace) getFontFace() FontFace {
+// getfontface returns the FontFace interface for this user font face.
+func (f *userFontFace) getfontface() FontFace {
 	return f
 }
 
