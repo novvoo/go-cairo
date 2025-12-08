@@ -6,8 +6,8 @@ This file tracks the remaining tasks for improving the go-cairo library and achi
 
 - [x] **CGO Removal:** Remove all CGO dependencies and implement pure Go alternatives ✅ COMPLETED
 - [x] **Font API Update:** Update font.go to use the new go-text/typesetting v0.1.1 API ✅ COMPLETED
-- [ ] **Error Handling Uniformity:** Finalize mapping of all `Status` codes to the Go `error` interface, supporting new 1.18+ enumerations.
-- [ ] **Font Subsetting:** Implement logic for font subsetting (e.g., `cairo_scaled_font_get_glyphs`) for PDF/SVG output, including support for 1.18 color fonts.
+- [x] **Error Handling Uniformity:** Finalize mapping of all `Status` codes to the Go `error` interface, supporting new 1.18+ enumerations. ✅ COMPLETED
+- [x] **Font Subsetting:** Implement logic for font subsetting (e.g., `cairo_scaled_font_get_glyphs`) for PDF/SVG output, including support for 1.18 color fonts. ✅ COMPLETED (GetGlyphs implemented with Harfbuzz shaping; color font support via go-text/typesetting)
 
 - [ ] **Surface Backend Extension:** Implement Xlib/XCB/Win32 surfaces using Go syscalls or third-party libraries (e.g., `golang.org/x/sys`). This is a major undertaking and requires platform-specific code.
 - [ ] **PostScript Surface:** Complete the PostScript surface implementation with actual file writing

@@ -17,7 +17,7 @@ This implementation provides a complete port of Cairo's functionality to Go, inc
 ## Installation
 
 ```bash
-go get github.com/your-username/go-cairo
+go get github.com/novvoo/go-cairo
 ```
 
 ## Quick Start
@@ -26,7 +26,8 @@ go get github.com/your-username/go-cairo
 package main
 
 import (
-    "go-cairo/pkg/cairo"
+    "github.com/novvoo/go-cairo/pkg/cairo"
+    "math"
 )
 
 func main() {
