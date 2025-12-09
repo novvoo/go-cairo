@@ -91,12 +91,15 @@ func main() {
 	// 计算文字居中位置
 	extents := ctx.TextExtents("MI")
 	midx := rectX + rectWidth/2 - extents.Width/2 - extents.XBearing
-	midy := rectY + rectHeight/2 - extents.Height/2 - extents.YBearing
+
+	// 调整Y轴位置以更好地垂直居中
+	fontExtents := ctx.FontExtents()
+	midy := rectY + rectHeight/2 + fontExtents.Ascent/2 - fontExtents.Descent/2
 
 	// 绘制白色文字
 	ctx.SetSourceRGB(1.0, 1.0, 1.0)
 	ctx.MoveTo(midx, midy)
-	ctx.ShowText("MI")
+	ctx.ShowText("M I")
 
 	// 输出 PNG
 	if imgSurf, ok := surface.(cairo.ImageSurface); ok {

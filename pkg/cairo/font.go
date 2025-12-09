@@ -654,17 +654,58 @@ func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
 
 	// Calculate total advance and bounds
 	var totalAdvance fixed.Int26_6
+	var minX, minY, maxX, maxY float64
+	firstGlyph := true
+
 	for _, g := range output.Glyphs {
 		totalAdvance += g.XAdvance
+
+		// Get glyph outline for bounds calculation
+		glyphData := realFace.GlyphData(api.GID(g.GlyphID))
+		if outline, ok := glyphData.(api.GlyphOutline); ok {
+			// Convert outline points to user space
+			for _, seg := range outline.Segments {
+				for _, arg := range seg.Args {
+					x := float64(arg.X) * sx / unitsPerEm
+					y := float64(arg.Y) * sy / unitsPerEm
+
+					// Add glyph position
+					x += float64(g.XOffset) / 64.0 * sx / unitsPerEm
+					y -= float64(g.YOffset) / 64.0 * sy / unitsPerEm
+
+					// For the first glyph, initialize bounds
+					if firstGlyph {
+						minX, maxX = x, x
+						minY, maxY = y, y
+						firstGlyph = false
+					} else {
+						if x < minX {
+							minX = x
+						}
+						if x > maxX {
+							maxX = x
+						}
+						if y < minY {
+							minY = y
+						}
+						if y > maxY {
+							maxY = y
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Convert to user space units
 	ext.XAdvance = float64(totalAdvance) / 64.0 * sx / unitsPerEm
 	ext.YAdvance = 0
-	ext.Width = ext.XAdvance
-	ext.Height = sy
-	ext.XBearing = 0
-	ext.YBearing = -sy * 0.8
+
+	// Set proper width and height based on actual bounds
+	ext.Width = maxX - minX
+	ext.Height = maxY - minY
+	ext.XBearing = minX
+	ext.YBearing = -maxY // Negative because Y axis is inverted in Cairo
 
 	return ext
 }
@@ -1039,6 +1080,8 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 	// Glyphs
 	glyphs = make([]Glyph, len(output.Glyphs))
 	var curX, curY float64
+
+	// Process each glyph with proper spacing
 	for i, g := range output.Glyphs {
 		// Position is in user space, relative to the start point (x, y)
 		glyphs[i] = Glyph{
@@ -1046,7 +1089,19 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 			X:     x + curX + float64(g.XOffset)/64.0*sx/unitsPerEm,
 			Y:     y + curY - float64(g.YOffset)/64.0*sy/unitsPerEm,
 		}
-		curX += float64(g.XAdvance) / 64.0 * sx / unitsPerEm
+
+		// Add the advance width for the next glyph
+		advance := float64(g.XAdvance) / 64.0 * sx / unitsPerEm
+		curX += advance
+
+		// Add kerning between characters if this is not the last glyph
+		if i < len(output.Glyphs)-1 {
+			// Get kerning adjustment between current and next glyph
+			kerning, _ := s.GetKerning(runes[i], runes[i+1])
+			curX += kerning
+		}
+
+		// Add vertical advance
 		curY += float64(g.YAdvance) / 64.0 * sy / unitsPerEm
 	}
 

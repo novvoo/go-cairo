@@ -1408,7 +1408,8 @@ func (c *context) ShowTextGlyphs(utf8 string, glyphs []Glyph, clusters []TextClu
 		// Get text extents to calculate the final position
 		extents := c.TextExtents(utf8)
 
-		c.currentPoint.x = lastGlyph.X + extents.XAdvance/float64(len(glyphs))
+		// Correctly update the current point after drawing text
+		c.currentPoint.x = lastGlyph.X + extents.XAdvance
 		c.currentPoint.y = lastGlyph.Y
 		c.currentPoint.hasPoint = true
 	}
@@ -1445,7 +1446,7 @@ func (c *context) GlyphPath(glyphs []Glyph) {
 		c.Translate(g.X, g.Y)
 
 		// Flip Y axis for proper glyph orientation
-		c.Scale(1, -1)
+		//c.Scale(1, -1) // 注释掉这行，避免文字翻转
 
 		// Append the glyph path to current path
 		c.AppendPath(glyphPath)
