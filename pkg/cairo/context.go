@@ -1624,12 +1624,23 @@ func (c *context) GetScaledFont() ScaledFont {
 		if c.gstate.fontFace == nil {
 			c.gstate.fontFace = NewToyFontFace("sans", FontSlantNormal, FontWeightNormal)
 		}
-		c.gstate.scaledFont = NewScaledFont(
-			c.gstate.fontFace,
-			&c.gstate.fontMatrix,
-			&c.gstate.matrix,
-			c.gstate.fontOptions,
-		)
+
+		// Check if we should use PangoCairoScaledFont
+		if _, isPangoFont := c.gstate.fontFace.(*PangoCairoFont); isPangoFont {
+			c.gstate.scaledFont = NewPangoCairoScaledFont(
+				c.gstate.fontFace,
+				&c.gstate.fontMatrix,
+				&c.gstate.matrix,
+				c.gstate.fontOptions,
+			)
+		} else {
+			c.gstate.scaledFont = NewScaledFont(
+				c.gstate.fontFace,
+				&c.gstate.fontMatrix,
+				&c.gstate.matrix,
+				c.gstate.fontOptions,
+			)
+		}
 	}
 	return c.gstate.scaledFont.Reference()
 }

@@ -141,11 +141,11 @@ func main() {
 	fmt.Println("💾 Saving image to PNG...")
 	if imgSurf, ok := surface.(cairo.ImageSurface); ok {
 		// 应用反预乘 alpha 修复 PNG 透明度问题
-		status := imgSurf.WriteToPNG("example/images/comprehensive_test.png")
+		status := imgSurf.WriteToPNG("comprehensive_test.png")
 		if status != cairo.StatusSuccess {
 			panic(fmt.Sprintf("WriteToPNG failed: %v", status))
 		}
-		fmt.Println("✅ Comprehensive test image saved to images/comprehensive_test.png")
+		fmt.Println("✅ Comprehensive test image saved to comprehensive_test.png")
 	} else {
 		panic("Surface is not an ImageSurface")
 	}

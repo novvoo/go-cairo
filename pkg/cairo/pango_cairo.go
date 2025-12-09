@@ -1,6 +1,7 @@
 package cairo
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"sync/atomic"
@@ -1427,4 +1428,119 @@ func PangoCairoCreateLayout(ctx Context) *PangoCairoLayout {
 	pangoCtx := NewPangoCairoContext(fontMap)
 	layout := NewPangoCairoLayout(pangoCtx)
 	return layout
+}
+
+// GlyphCornerCoordinates represents the four corners of a glyph's bounding box
+type GlyphCornerCoordinates struct {
+	TopLeftX, TopLeftY         float64
+	TopRightX, TopRightY       float64
+	BottomLeftX, BottomLeftY   float64
+	BottomRightX, BottomRightY float64
+}
+
+// GetGlyphCornerCoordinates calculates the four corner coordinates of a glyph
+func (s *PangoCairoScaledFont) GetGlyphCornerCoordinates(glyph Glyph) (*GlyphCornerCoordinates, Status) {
+	// Get glyph metrics
+	metrics, status := s.GetGlyphMetrics(rune(glyph.Index))
+	if status != StatusSuccess {
+		return nil, status
+	}
+
+	// Calculate the four corners based on glyph position and bounding box
+	coords := &GlyphCornerCoordinates{
+		TopLeftX:     glyph.X + metrics.BoundingBox.XMin,
+		TopLeftY:     glyph.Y + metrics.BoundingBox.YMin,
+		TopRightX:    glyph.X + metrics.BoundingBox.XMax,
+		TopRightY:    glyph.Y + metrics.BoundingBox.YMin,
+		BottomLeftX:  glyph.X + metrics.BoundingBox.XMin,
+		BottomLeftY:  glyph.Y + metrics.BoundingBox.YMax,
+		BottomRightX: glyph.X + metrics.BoundingBox.XMax,
+		BottomRightY: glyph.Y + metrics.BoundingBox.YMax,
+	}
+
+	return coords, StatusSuccess
+}
+
+// CheckGlyphCollision checks if two glyphs' bounding boxes overlap
+func (s *PangoCairoScaledFont) CheckGlyphCollision(glyph1, glyph2 Glyph) (bool, Status) {
+	// Get corner coordinates for both glyphs
+	coords1, status := s.GetGlyphCornerCoordinates(glyph1)
+	if status != StatusSuccess {
+		return false, status
+	}
+
+	coords2, status := s.GetGlyphCornerCoordinates(glyph2)
+	if status != StatusSuccess {
+		return false, status
+	}
+
+	// Check for overlap
+	// Two rectangles overlap if:
+	// 1. The left edge of rect1 is to the left of the right edge of rect2
+	// 2. The right edge of rect1 is to the right of the left edge of rect2
+	// 3. The top edge of rect1 is above the bottom edge of rect2
+	// 4. The bottom edge of rect1 is below the top edge of rect2
+	overlap := coords1.TopLeftX < coords2.BottomRightX &&
+		coords1.BottomRightX > coords2.TopLeftX &&
+		coords1.TopLeftY < coords2.BottomRightY &&
+		coords1.BottomRightY > coords2.TopLeftY
+
+	return overlap, StatusSuccess
+}
+
+// PrintGlyphInfo prints detailed information about a glyph including its corner coordinates
+func (s *PangoCairoScaledFont) PrintGlyphInfo(glyph Glyph, char rune) {
+	coords, status := s.GetGlyphCornerCoordinates(glyph)
+	if status != StatusSuccess {
+		fmt.Printf("无法获取字符 '%c' 的坐标信息: %v\n", char, status)
+		return
+	}
+
+	metrics, status := s.GetGlyphMetrics(char)
+	if status != StatusSuccess {
+		fmt.Printf("无法获取字符 '%c' 的度量信息: %v\n", char, status)
+		return
+	}
+
+	fmt.Printf("字符 '%c' 位置信息:\n", char)
+	fmt.Printf("  位置: (%.2f, %.2f)\n", glyph.X, glyph.Y)
+	fmt.Printf("  边界框: minX=%.2f, minY=%.2f, maxX=%.2f, maxY=%.2f\n",
+		metrics.BoundingBox.XMin, metrics.BoundingBox.YMin,
+		metrics.BoundingBox.XMax, metrics.BoundingBox.YMax)
+	fmt.Printf("  左上角: (%.2f, %.2f)\n", coords.TopLeftX, coords.TopLeftY)
+	fmt.Printf("  右上角: (%.2f, %.2f)\n", coords.TopRightX, coords.TopRightY)
+	fmt.Printf("  左下角: (%.2f, %.2f)\n", coords.BottomLeftX, coords.BottomLeftY)
+	fmt.Printf("  右下角: (%.2f, %.2f)\n", coords.BottomRightX, coords.BottomRightY)
+	fmt.Println()
+}
+
+// PrintTextGlyphsInfo prints information for all glyphs in a text string
+func (s *PangoCairoScaledFont) PrintTextGlyphsInfo(utf8 string, glyphs []Glyph) {
+	runes := []rune(utf8)
+
+	// Print info for each glyph
+	for i, glyph := range glyphs {
+		var char rune
+		if i < len(runes) {
+			char = runes[i]
+		} else {
+			char = rune(glyph.Index)
+		}
+
+		s.PrintGlyphInfo(glyph, char)
+
+		// Check for collisions with subsequent glyphs
+		for j := i + 1; j < len(glyphs); j++ {
+			collides, status := s.CheckGlyphCollision(glyph, glyphs[j])
+			if status == StatusSuccess && collides {
+				var nextChar rune
+				if j < len(runes) {
+					nextChar = runes[j]
+				} else {
+					nextChar = rune(glyphs[j].Index)
+				}
+				fmt.Printf("警告: 字符 '%c' 和 '%c' 之间存在重叠!\n\n", char, nextChar)
+			}
+		}
+	}
 }

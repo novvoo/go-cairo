@@ -84,10 +84,10 @@ func main() {
 
 	// 保存
 	_ = os.Mkdir("images", 0755)
-	err := dc.SavePNG("example/images/comprehensive_test_gg.png")
+	err := dc.SavePNG("comprehensive_test_gg.png")
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println("成功！图片已保存到 images/comprehensive_test_gg.png")
+	fmt.Println("成功！图片已保存到 comprehensive_test_gg.png")
 }
