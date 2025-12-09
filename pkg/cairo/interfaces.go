@@ -208,6 +208,11 @@ type Context interface {
 	SetScaledFont(scaledFont ScaledFont)
 	GetScaledFont() ScaledFont
 	FontExtents() *FontExtents
+
+	// PangoCairo functions
+	PangoCairoCreateLayout() interface{}
+	PangoCairoUpdateLayout(layout interface{})
+	PangoCairoShowText(layout interface{})
 }
 
 // Pattern represents cairo_pattern_t - paint source interface
@@ -308,6 +313,12 @@ type ScaledFont interface {
 
 	// Kerning
 	GetKerning(r1, r2 rune) (float64, Status)
+
+	// PangoCairo extensions
+	GetTextBearingMetrics(text string) (xBearing, yBearing float64, status Status)
+	GetTextAlignmentOffset(alignment TextAlignment) (float64, Status)
+	GetGlyphBearingMetrics(r rune) (xBearing, yBearing float64, status Status)
+	GetGlyphMetrics(r rune) (*GlyphMetrics, Status)
 }
 
 // Additional data structures

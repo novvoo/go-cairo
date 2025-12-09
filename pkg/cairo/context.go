@@ -1703,3 +1703,18 @@ func (c *context) TextPath(utf8 string) {
 		c.currentPoint.hasPoint = true
 	}
 }
+
+// PangoCairoCreateLayout creates a new Pango layout for this context
+func (c *context) PangoCairoCreateLayout() interface{} {
+	return PangoCairoCreateLayout(c)
+}
+
+// PangoCairoUpdateLayout updates a layout to match the current transformation matrix of this context
+func (c *context) PangoCairoUpdateLayout(layout interface{}) {
+	PangoCairoUpdateLayout(c, layout.(*PangoCairoLayout))
+}
+
+// PangoCairoShowText renders text using PangoCairo
+func (c *context) PangoCairoShowText(layout interface{}) {
+	PangoCairoShowText(c, layout.(*PangoCairoLayout))
+}

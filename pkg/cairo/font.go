@@ -544,6 +544,13 @@ func (s *scaledFont) getRealFace() (font.Face, Status) {
 	if s.fontFace == nil {
 		return nil, StatusNullPointer
 	}
+
+	// First try to get as PangoCairoFont
+	if pcFont, ok := s.fontFace.(*PangoCairoFont); ok && pcFont.realFace != nil {
+		return pcFont.realFace, StatusSuccess
+	}
+
+	// Fall back to toy font
 	toy, ok := s.fontFace.(*toyFontFace)
 	if !ok || toy.realFace == nil {
 		return nil, StatusFontTypeMismatch
