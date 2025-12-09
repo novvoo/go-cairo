@@ -775,6 +775,11 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
 	unitsPerEm := float64(realFace.Upem())
 
+	// Check if we need to flip the Y axis based on the font matrix
+	// In Cairo, the default coordinate system has Y growing downward, but font glyphs
+	// are designed for Y growing upward. We need to flip the Y axis for proper text orientation.
+	flipY := s.fontMatrix.YY > 0
+
 	// FUnits to user space: FUnits * (scale / unitsPerEm)
 	funitToUser := func(f float32, scale float64) float64 {
 		return float64(f) * scale / unitsPerEm
@@ -785,42 +790,54 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 	for _, seg := range outline.Segments {
 		switch seg.Op {
 		case api.SegmentOpMoveTo:
-			point := Point{
-				X: funitToUser(seg.Args[0].X, sx),
-				Y: funitToUser(seg.Args[0].Y, sy),
+			x := funitToUser(seg.Args[0].X, sx)
+			y := funitToUser(seg.Args[0].Y, sy)
+			// Apply Y flip if needed
+			if flipY {
+				y = -y
 			}
+			point := Point{X: x, Y: y}
 			pathPoints = append(pathPoints, point)
 		case api.SegmentOpLineTo:
-			point := Point{
-				X: funitToUser(seg.Args[0].X, sx),
-				Y: funitToUser(seg.Args[0].Y, sy),
+			x := funitToUser(seg.Args[0].X, sx)
+			y := funitToUser(seg.Args[0].Y, sy)
+			// Apply Y flip if needed
+			if flipY {
+				y = -y
 			}
+			point := Point{X: x, Y: y}
 			pathPoints = append(pathPoints, point)
 		case api.SegmentOpQuadTo:
 			// Convert quadratic to cubic Bezier
 			// For simplicity, we'll add the control point and end point
-			p1 := Point{
-				X: funitToUser(seg.Args[0].X, sx),
-				Y: funitToUser(seg.Args[0].Y, sy),
+			x1 := funitToUser(seg.Args[0].X, sx)
+			y1 := funitToUser(seg.Args[0].Y, sy)
+			x2 := funitToUser(seg.Args[1].X, sx)
+			y2 := funitToUser(seg.Args[1].Y, sy)
+			// Apply Y flip if needed
+			if flipY {
+				y1 = -y1
+				y2 = -y2
 			}
-			p2 := Point{
-				X: funitToUser(seg.Args[1].X, sx),
-				Y: funitToUser(seg.Args[1].Y, sy),
-			}
+			p1 := Point{X: x1, Y: y1}
+			p2 := Point{X: x2, Y: y2}
 			pathPoints = append(pathPoints, p1, p1, p2)
 		case api.SegmentOpCubeTo:
-			p1 := Point{
-				X: funitToUser(seg.Args[0].X, sx),
-				Y: funitToUser(seg.Args[0].Y, sy),
+			x1 := funitToUser(seg.Args[0].X, sx)
+			y1 := funitToUser(seg.Args[0].Y, sy)
+			x2 := funitToUser(seg.Args[1].X, sx)
+			y2 := funitToUser(seg.Args[1].Y, sy)
+			x3 := funitToUser(seg.Args[2].X, sx)
+			y3 := funitToUser(seg.Args[2].Y, sy)
+			// Apply Y flip if needed
+			if flipY {
+				y1 = -y1
+				y2 = -y2
+				y3 = -y3
 			}
-			p2 := Point{
-				X: funitToUser(seg.Args[1].X, sx),
-				Y: funitToUser(seg.Args[1].Y, sy),
-			}
-			p3 := Point{
-				X: funitToUser(seg.Args[2].X, sx),
-				Y: funitToUser(seg.Args[2].Y, sy),
-			}
+			p1 := Point{X: x1, Y: y1}
+			p2 := Point{X: x2, Y: y2}
+			p3 := Point{X: x3, Y: y3}
 			pathPoints = append(pathPoints, p1, p2, p3)
 		}
 	}

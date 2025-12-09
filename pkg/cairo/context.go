@@ -1388,8 +1388,16 @@ func (c *context) ShowTextGlyphs(utf8 string, glyphs []Glyph, clusters []TextClu
 		// Translate to glyph position
 		c.Translate(glyph.X, glyph.Y)
 
-		// Note: Don't flip Y axis - draw2d fonts are already in the correct orientation
-		// The Scale(1, -1) was causing glyphs to overlap
+		// Apply proper Y axis scaling to prevent text flipping in downward Y coordinate systems
+		// In Cairo, the default coordinate system has Y growing downward, but font glyphs
+		// are designed for Y growing upward. We need to flip the Y axis for proper text orientation.
+		// Check if we need to flip the Y axis based on the font matrix
+		fontMatrix := c.GetFontMatrix()
+		if fontMatrix.YY > 0 {
+			// In a coordinate system where Y grows downward and font matrix has positive YY,
+			// we need to flip the Y axis for proper text orientation
+			c.Scale(1, -1)
+		}
 
 		// Append the glyph path to current path
 		c.AppendPath(glyphPath)
@@ -1445,8 +1453,15 @@ func (c *context) GlyphPath(glyphs []Glyph) {
 		// Translate to glyph position
 		c.Translate(g.X, g.Y)
 
-		// Flip Y axis for proper glyph orientation
-		//c.Scale(1, -1) // 注释掉这行，避免文字翻转
+		// Apply proper Y axis scaling to prevent text flipping in downward Y coordinate systems
+		// In Cairo, the default coordinate system has Y growing downward, but font glyphs
+		// are designed for Y growing upward. We need to flip the Y axis for proper text orientation.
+		// Check if we need to flip the Y axis based on the font matrix
+		if c.gstate.fontMatrix.YY > 0 {
+			// In a coordinate system where Y grows downward and font matrix has positive YY,
+			// we need to flip the Y axis for proper text orientation
+			c.Scale(1, -1)
+		}
 
 		// Append the glyph path to current path
 		c.AppendPath(glyphPath)
