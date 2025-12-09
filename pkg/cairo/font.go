@@ -567,13 +567,14 @@ func (s *scaledFont) Extents() *FontExtents {
 	// Cairo's font matrix is typically a scale matrix (size in user space units).
 	// We'll use the average of the scale factors as the nominal size.
 
-	// Scale factor from font matrix
-	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
-	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	// Scale factor from font matrix - but harfbuzz already accounts for this
+	// Fix: Remove incorrect sx/sy calculation and unitsPerEm division
+	// sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	// sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
 
 	// Font metrics are in font units (FUnits). We need to convert them to user space units.
-	// FUnits to user space: FUnits * (scale / unitsPerEm)
-	unitsPerEm := float64(realFace.Upem())
+	// FUnits to user space: FUnits * (scale / unitsPerEm) - not needed anymore
+	// unitsPerEm := float64(realFace.Upem())
 
 	// Ascent, Descent, Height in FUnits
 	metrics, _ := realFace.FontHExtents()
@@ -582,13 +583,15 @@ func (s *scaledFont) Extents() *FontExtents {
 	lineGapFUnits := float64(metrics.LineGap)
 
 	// Convert to user space units
-	fe.Ascent = ascentFUnits * sx / unitsPerEm
-	fe.Descent = -descentFUnits * sy / unitsPerEm // Descent is negative in FUnits, cairo expects positive
-	fe.Height = fe.Ascent + fe.Descent + lineGapFUnits*sy/unitsPerEm
-	fe.LineGap = lineGapFUnits * sy / unitsPerEm
+	// Fix 1: Remove incorrect unitsPerEm division
+	fe.Ascent = ascentFUnits / 64.0
+	fe.Descent = -descentFUnits / 64.0 // Descent is negative in FUnits, cairo expects positive
+	fe.Height = fe.Ascent + fe.Descent + lineGapFUnits/64.0
+	fe.LineGap = lineGapFUnits / 64.0
 
 	// Max advance is a guess without shaping a string
-	fe.MaxXAdvance = sx
+	// Use a reasonable default for max advance
+	fe.MaxXAdvance = fe.Ascent + fe.Descent
 	fe.MaxYAdvance = 0
 
 	// Calculate underline metrics
@@ -647,10 +650,11 @@ func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
 	output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
 	// 2. Calculate extents from shaped output
-	// Scale factor from font matrix
-	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
-	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
-	unitsPerEm := float64(realFace.Upem())
+	// Scale factor from font matrix - but harfbuzz already accounts for this
+	// Fix: Remove incorrect unitsPerEm division
+	// sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	// sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	// unitsPerEm := float64(realFace.Upem())
 
 	// Calculate total advance and bounds
 	var totalAdvance fixed.Int26_6
@@ -663,15 +667,17 @@ func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
 		// Get glyph outline for bounds calculation
 		glyphData := realFace.GlyphData(api.GID(g.GlyphID))
 		if outline, ok := glyphData.(api.GlyphOutline); ok {
-			// Convert outline points to user space
+			// Convert outline points to user space - harfbuzz already provides user space coordinates
 			for _, seg := range outline.Segments {
 				for _, arg := range seg.Args {
-					x := float64(arg.X) * sx / unitsPerEm
-					y := float64(arg.Y) * sy / unitsPerEm
+					// Fix 1: Remove incorrect unitsPerEm division - harfbuzz already provides user space coordinates
+					x := float64(arg.X) / 64.0
+					y := float64(arg.Y) / 64.0
 
 					// Add glyph position
-					x += float64(g.XOffset) / 64.0 * sx / unitsPerEm
-					y -= float64(g.YOffset) / 64.0 * sy / unitsPerEm
+					// Fix 1: Remove incorrect unitsPerEm division
+					x += float64(g.XOffset) / 64.0
+					y -= float64(g.YOffset) / 64.0 // Negative for Y flip
 
 					// For the first glyph, initialize bounds
 					if firstGlyph {
@@ -698,7 +704,8 @@ func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
 	}
 
 	// Convert to user space units
-	ext.XAdvance = float64(totalAdvance) / 64.0 * sx / unitsPerEm
+	// Fix 1: Remove incorrect unitsPerEm division
+	ext.XAdvance = float64(totalAdvance) / 64.0
 	ext.YAdvance = 0
 
 	// Set proper width and height based on actual bounds
@@ -770,28 +777,30 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 		Data:   make([]PathData, 0),
 	}
 
-	// Scale factor from font matrix
-	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
-	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
-	unitsPerEm := float64(realFace.Upem())
+	// Scale factor from font matrix - but harfbuzz already accounts for this
+	// Fix: Remove incorrect sx/sy calculation and unitsPerEm division
+	// sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	// sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	// unitsPerEm := float64(realFace.Upem())
 
 	// Check if we need to flip the Y axis based on the font matrix
 	// In Cairo, the default coordinate system has Y growing downward, but font glyphs
 	// are designed for Y growing upward. We need to flip the Y axis for proper text orientation.
 	flipY := s.fontMatrix.YY > 0
 
-	// FUnits to user space: FUnits * (scale / unitsPerEm)
-	funitToUser := func(f float32, scale float64) float64 {
-		return float64(f) * scale / unitsPerEm
-	}
+	// FUnits to user space: FUnits * (scale / unitsPerEm) - not needed anymore
+	// funitToUser := func(f float32, scale float64) float64 {
+	// 	return float64(f) * scale / unitsPerEm
+	// }
 
 	// Iterate over the path segments
 	var pathPoints []Point
 	for _, seg := range outline.Segments {
 		switch seg.Op {
 		case api.SegmentOpMoveTo:
-			x := funitToUser(seg.Args[0].X, sx)
-			y := funitToUser(seg.Args[0].Y, sy)
+			// Fix 1: Remove incorrect unitsPerEm division
+			x := float64(seg.Args[0].X) / 64.0
+			y := float64(seg.Args[0].Y) / 64.0
 			// Apply Y flip if needed
 			if flipY {
 				y = -y
@@ -799,8 +808,9 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 			point := Point{X: x, Y: y}
 			pathPoints = append(pathPoints, point)
 		case api.SegmentOpLineTo:
-			x := funitToUser(seg.Args[0].X, sx)
-			y := funitToUser(seg.Args[0].Y, sy)
+			// Fix 1: Remove incorrect unitsPerEm division
+			x := float64(seg.Args[0].X) / 64.0
+			y := float64(seg.Args[0].Y) / 64.0
 			// Apply Y flip if needed
 			if flipY {
 				y = -y
@@ -810,10 +820,11 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 		case api.SegmentOpQuadTo:
 			// Convert quadratic to cubic Bezier
 			// For simplicity, we'll add the control point and end point
-			x1 := funitToUser(seg.Args[0].X, sx)
-			y1 := funitToUser(seg.Args[0].Y, sy)
-			x2 := funitToUser(seg.Args[1].X, sx)
-			y2 := funitToUser(seg.Args[1].Y, sy)
+			// Fix 1: Remove incorrect unitsPerEm division
+			x1 := float64(seg.Args[0].X) / 64.0
+			y1 := float64(seg.Args[0].Y) / 64.0
+			x2 := float64(seg.Args[1].X) / 64.0
+			y2 := float64(seg.Args[1].Y) / 64.0
 			// Apply Y flip if needed
 			if flipY {
 				y1 = -y1
@@ -823,12 +834,13 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 			p2 := Point{X: x2, Y: y2}
 			pathPoints = append(pathPoints, p1, p1, p2)
 		case api.SegmentOpCubeTo:
-			x1 := funitToUser(seg.Args[0].X, sx)
-			y1 := funitToUser(seg.Args[0].Y, sy)
-			x2 := funitToUser(seg.Args[1].X, sx)
-			y2 := funitToUser(seg.Args[1].Y, sy)
-			x3 := funitToUser(seg.Args[2].X, sx)
-			y3 := funitToUser(seg.Args[2].Y, sy)
+			// Fix 1: Remove incorrect unitsPerEm division
+			x1 := float64(seg.Args[0].X) / 64.0
+			y1 := float64(seg.Args[0].Y) / 64.0
+			x2 := float64(seg.Args[1].X) / 64.0
+			y2 := float64(seg.Args[1].Y) / 64.0
+			x3 := float64(seg.Args[2].X) / 64.0
+			y3 := float64(seg.Args[2].Y) / 64.0
 			// Apply Y flip if needed
 			if flipY {
 				y1 = -y1
@@ -967,15 +979,16 @@ func (s *scaledFont) GetGlyphMetrics(r rune) (*GlyphMetrics, Status) {
 		return nil, StatusFontTypeMismatch
 	}
 
-	// Scale factor from font matrix
-	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
-	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
-	unitsPerEm := float64(realFace.Upem())
+	// Scale factor from font matrix - but harfbuzz already accounts for this
+	// Fix: Remove incorrect sx/sy calculation and unitsPerEm division
+	// sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	// sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	// unitsPerEm := float64(realFace.Upem())
 
-	// FUnits to user space conversion function
-	funitToUser := func(f float32, scale float64) float64 {
-		return float64(f) * scale / unitsPerEm
-	}
+	// FUnits to user space conversion function - not needed anymore
+	// funitToUser := func(f float32, scale float64) float64 {
+	// 	return float64(f) * scale / unitsPerEm
+	// }
 
 	// Calculate bounding box from outline
 	var xmin, xmax, ymin, ymax float64
@@ -983,8 +996,9 @@ func (s *scaledFont) GetGlyphMetrics(r rune) (*GlyphMetrics, Status) {
 
 	for _, seg := range outline.Segments {
 		for _, arg := range seg.Args {
-			x := funitToUser(arg.X, sx)
-			y := funitToUser(arg.Y, sy)
+			// Fix 1: Remove incorrect unitsPerEm division - harfbuzz already provides user space coordinates
+			x := float64(arg.X) / 64.0
+			y := float64(arg.Y) / 64.0
 
 			if firstPoint {
 				xmin, xmax = x, x
@@ -1008,7 +1022,8 @@ func (s *scaledFont) GetGlyphMetrics(r rune) (*GlyphMetrics, Status) {
 	}
 
 	// Get horizontal metrics from the font's hmtx table
-	advanceWidth := float64(realFace.HorizontalAdvance(gid)) * sx / unitsPerEm
+	// Fix 1: Remove incorrect unitsPerEm division
+	advanceWidth := float64(realFace.HorizontalAdvance(gid)) / 64.0
 
 	// Create metrics
 	metrics := &GlyphMetrics{
@@ -1089,10 +1104,12 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 
 	// 2. Convert shaped output to cairo's Glyph and TextCluster structures
 
-	// Scale factor from font matrix
-	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
-	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
-	unitsPerEm := float64(realFace.Upem())
+	// Get the CTM (Current Transformation Matrix)
+	ctm := s.GetCTM()
+
+	// Transform the initial position (x, y) by CTM
+	transformedX := ctm.XX*x + ctm.XY*y + ctm.X0
+	transformedY := ctm.YX*x + ctm.YY*y + ctm.Y0
 
 	// Glyphs
 	glyphs = make([]Glyph, len(output.Glyphs))
@@ -1101,14 +1118,17 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 	// Process each glyph with proper spacing
 	for i, g := range output.Glyphs {
 		// Position is in user space, relative to the start point (x, y)
+		// Fix 1: Remove incorrect unitsPerEm division - harfbuzz already provides user space coordinates
+		// Fix 2: Remove incorrect sx/sy calculation - harfbuzz already accounts for font matrix
 		glyphs[i] = Glyph{
 			Index: uint64(g.GlyphID),
-			X:     x + curX + float64(g.XOffset)/64.0*sx/unitsPerEm,
-			Y:     y + curY - float64(g.YOffset)/64.0*sy/unitsPerEm,
+			X:     transformedX + curX + float64(g.XOffset)/64.0,
+			Y:     transformedY + curY - float64(g.YOffset)/64.0, // Negative for Y flip
 		}
 
 		// Add the advance width for the next glyph
-		advance := float64(g.XAdvance) / 64.0 * sx / unitsPerEm
+		// Fix 1: Remove incorrect unitsPerEm division
+		advance := float64(g.XAdvance) / 64.0
 		curX += advance
 
 		// Add kerning between characters if this is not the last glyph
@@ -1119,7 +1139,8 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 		}
 
 		// Add vertical advance
-		curY += float64(g.YAdvance) / 64.0 * sy / unitsPerEm
+		// Fix 1: Remove incorrect unitsPerEm division
+		curY += float64(g.YAdvance) / 64.0
 	}
 
 	// Clusters - simplified mapping (one cluster per glyph)

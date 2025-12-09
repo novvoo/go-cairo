@@ -147,6 +147,20 @@ func NewContext(target Surface) Context {
 			dummyImage := image.NewRGBA(image.Rect(0, 0, imgSurf.GetWidth(), imgSurf.GetHeight()))
 			ctx.gc = draw2dimg.NewGraphicContext(dummyImage)
 		}
+
+		// Apply Y-axis flip compensation for ImageSurface to match Cairo's coordinate system
+		// In Cairo, the default coordinate system has Y growing upward, but image formats
+		// have Y growing downward. We need to flip the Y axis and translate to match.
+		ctx.gstate.matrix.InitIdentity()
+		ctx.gstate.matrix.YY = -1.0
+		ctx.gstate.matrix.Y0 = float64(imgSurf.GetHeight())
+
+		// Also apply the transformation to the draw2d context to ensure consistency
+		ctx.gc.SetMatrixTransform(draw2d.Matrix{
+			1.0, 0.0,
+			0.0, -1.0,
+			0.0, float64(imgSurf.GetHeight()),
+		})
 	case *pdfSurface:
 		// Create a draw2d PDF context
 		dummyImage := image.NewRGBA(image.Rect(0, 0, int(s.width), int(s.height)))
@@ -169,7 +183,10 @@ func NewContext(target Surface) Context {
 	ctx.gstate.lineCap = LineCapButt
 	ctx.gstate.lineJoin = LineJoinMiter
 	ctx.gstate.miterLimit = 10.0
-	ctx.gstate.matrix.InitIdentity()
+	// Matrix is already initialized for ImageSurface above
+	if ctx.gstate.matrix.XX == 0 && ctx.gstate.matrix.YY == 0 && ctx.gstate.matrix.XY == 0 && ctx.gstate.matrix.YX == 0 {
+		ctx.gstate.matrix.InitIdentity()
+	}
 
 	return ctx
 }
