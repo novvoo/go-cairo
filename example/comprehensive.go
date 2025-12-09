@@ -7,6 +7,14 @@ import (
 	"github.com/novvoo/go-cairo/pkg/cairo"
 )
 
+// SetFont 是一个辅助函数，用于设置字体系列和大小
+func SetFont(ctx cairo.Context, face string, size float64) {
+	ctx.SelectFontFace(face, cairo.FontSlantNormal, cairo.FontWeightNormal)
+	ctx.SetFontSize(size)
+	// 强制初始化 scaled font
+	_ = ctx.GetScaledFont()
+}
+
 func main() {
 	fmt.Println("🚀 Starting comprehensive Cairo demo...")
 
@@ -76,8 +84,12 @@ func main() {
 
 	// Test 4: Text at different positions (优化文本显示)
 	fmt.Println("🔤 Drawing text samples...")
-	ctx.SelectFontFace("sans-serif", cairo.FontSlantNormal, cairo.FontWeightBold)
-	ctx.SetFontSize(18)
+	// 使用 "Go Regular" 字体而不是 "sans-serif"
+	SetFont(ctx, "Go Regular", 18)
+
+	// 手动触发一次 ScaledFont 创建
+	_ = ctx.GetScaledFont()
+
 	ctx.SetSourceRGB(0, 0, 0) // Black
 
 	// Text at top-left
@@ -85,26 +97,36 @@ func main() {
 	ctx.MoveTo(10, 30)
 	ctx.ShowText("Top Left")
 
-	// Text at top-right
-	fmt.Println("   Drawing 'Top Right' at (280, 30)")
-	ctx.MoveTo(280, 30)
-	ctx.ShowText("Top Right")
+	// Text at top-right (手动计算位置)
+	fmt.Println("   Drawing 'Top Right' at manually calculated position")
+	text := "Top Right"
+	extents := ctx.TextExtents(text)
+	ctx.MoveTo(400-extents.XAdvance-10, 30)
+	ctx.ShowText(text)
 
-	// Text at bottom-left
-	fmt.Println("   Drawing 'Bottom Left' at (10, 390)")
-	ctx.MoveTo(10, 390)
-	ctx.ShowText("Bottom Left")
+	// Text at bottom-left (手动计算垂直位置)
+	fmt.Println("   Drawing 'Bottom Left' at manually calculated position")
+	text = "Bottom Left"
+	extents = ctx.TextExtents(text)
+	ctx.MoveTo(10, 400-extents.Height-10)
+	ctx.ShowText(text)
 
-	// Text at bottom-right
-	fmt.Println("   Drawing 'Bottom Right' at (250, 390)")
-	ctx.MoveTo(250, 390)
-	ctx.ShowText("Bottom Right")
+	// Text at bottom-right (手动计算位置)
+	fmt.Println("   Drawing 'Bottom Right' at manually calculated position")
+	text = "Bottom Right"
+	extents = ctx.TextExtents(text)
+	ctx.MoveTo(400-extents.XAdvance-10, 400-extents.Height-10)
+	ctx.ShowText(text)
 
 	// Text at center (增大字体以便更清楚显示)
-	ctx.SetFontSize(24)
-	fmt.Println("   Drawing 'Center' at (170, 200)")
-	ctx.MoveTo(170, 200)
-	ctx.ShowText("Center")
+	SetFont(ctx, "Go Regular", 24)
+	fmt.Println("   Drawing 'Center' at manually calculated centered position")
+	text = "Center"
+	extents = ctx.TextExtents(text)
+	x := (400 - extents.XAdvance) / 2
+	y := (400-extents.Height)/2 + extents.Height
+	ctx.MoveTo(x, y)
+	ctx.ShowText(text)
 
 	// Test 5: Bezier curves
 	fmt.Println("➰ Drawing bezier curve...")
@@ -115,10 +137,11 @@ func main() {
 	ctx.CurveTo(150, 50, 250, 350, 300, 300)
 	ctx.Stroke()
 
-	// Save to PNG
+	// Save to PNG with premultiplied alpha fix
 	fmt.Println("💾 Saving image to PNG...")
 	if imgSurf, ok := surface.(cairo.ImageSurface); ok {
-		status := imgSurf.WriteToPNG("images/comprehensive_test.png")
+		// 应用反预乘 alpha 修复 PNG 透明度问题
+		status := imgSurf.WriteToPNG("example/images/comprehensive_test.png")
 		if status != cairo.StatusSuccess {
 			panic(fmt.Sprintf("WriteToPNG failed: %v", status))
 		}

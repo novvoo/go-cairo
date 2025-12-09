@@ -305,6 +305,9 @@ type ScaledFont interface {
 	GlyphPath(glyphID uint64) (*Path, error)
 	TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status)
 	GetGlyphs(utf8 string) (glyphs []Glyph, status Status)
+
+	// Kerning
+	GetKerning(r1, r2 rune) (float64, Status)
 }
 
 // Additional data structures

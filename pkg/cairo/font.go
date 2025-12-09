@@ -1134,8 +1134,11 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 		// Add kerning between characters if this is not the last glyph
 		if i < len(output.Glyphs)-1 {
 			// Get kerning adjustment between current and next glyph
-			kerning, _ := s.GetKerning(runes[i], runes[i+1])
-			curX += kerning
+			kerning, kernStatus := s.GetKerning(runes[i], runes[i+1])
+			// Only apply kerning if successfully obtained
+			if kernStatus == StatusSuccess {
+				curX += kerning
+			}
 		}
 
 		// Add vertical advance

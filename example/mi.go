@@ -143,7 +143,7 @@ func main() {
 
 	// 输出 PNG
 	if imgSurf, ok := surface.(cairo.ImageSurface); ok {
-		status := imgSurf.WriteToPNG("images/mi_logo.png")
+		status := imgSurf.WriteToPNG("example/images/mi_logo.png")
 		if status != cairo.StatusSuccess {
 			panic(fmt.Sprintf("WriteToPNG failed: %v", status))
 		}
