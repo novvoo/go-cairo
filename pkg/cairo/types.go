@@ -105,6 +105,7 @@ const (
 	StatusTagError
 	StatusDwriteError
 	StatusSvgFontError
+	StatusInvalidGlyph
 	StatusLastStatus
 )
 
@@ -414,6 +415,19 @@ type RectangleInt struct {
 	Width, Height int
 }
 
+// GlyphTransform represents transformation matrix for individual glyphs
+// Following Cairo's text rendering model
+type GlyphTransform struct {
+	// Matrix is the transformation matrix [xx, xy, yx, yy, x0, y0]
+	Matrix Matrix
+
+	// OffsetX is additional X offset
+	OffsetX float64
+
+	// OffsetY is additional Y offset
+	OffsetY float64
+}
+
 // UserDataKey represents cairo_user_data_key_t - key for user data
 type UserDataKey struct {
 	Unused int
@@ -437,16 +451,104 @@ type TextExtents struct {
 
 // FontExtents represents cairo_font_extents_t - font metrics
 type FontExtents struct {
-	Ascent, Descent float64
-	Height          float64
-	MaxXAdvance     float64
-	MaxYAdvance     float64
+	// Ascent is the distance from the baseline to the highest point
+	// typically used by glyphs in the font
+	Ascent float64
+
+	// Descent is the distance from the baseline to the lowest point
+	// typically used by glyphs (positive value)
+	Descent float64
+
+	// Height is the recommended line spacing (ascent + descent + linegap)
+	Height float64
+
+	// MaxAdvance is the maximum advance width for all glyphs
+	MaxXAdvance float64
+
+	// MaxYAdvance is the maximum advance height for all glyphs
+	MaxYAdvance float64
+
+	// UnderlinePosition is the position of the underline
+	UnderlinePosition float64
+
+	// UnderlineThickness is the thickness of the underline
+	UnderlineThickness float64
+
+	// CapHeight is the height of capital letters
+	CapHeight float64
+
+	// XHeight is the height of lowercase 'x'
+	XHeight float64
+
+	// LineGap is the recommended additional spacing between lines
+	LineGap float64
 }
 
 // Glyph represents cairo_glyph_t - positioned glyph
 type Glyph struct {
 	Index uint64
 	X, Y  float64
+}
+
+// GlyphMetrics contains detailed metrics for a single glyph
+// Following Cairo's text rendering model
+type GlyphMetrics struct {
+	// Width is the horizontal distance from the origin to the point where
+	// the next glyph should be drawn (advance width)
+	Width float64
+
+	// Height is the vertical distance from the origin to the point where
+	// the next glyph should be drawn for vertical text (advance height)
+	Height float64
+
+	// XBearing is the horizontal distance from the origin to the leftmost
+	// part of the glyph
+	XBearing float64
+
+	// YBearing is the vertical distance from the origin (baseline) to the
+	// topmost part of the glyph
+	YBearing float64
+
+	// XAdvance is the horizontal distance to advance for the next glyph
+	XAdvance float64
+
+	// YAdvance is the vertical distance to advance for the next glyph
+	YAdvance float64
+
+	// BoundingBox contains the tight bounding box of the glyph outline
+	BoundingBox struct {
+		XMin, YMin float64
+		XMax, YMax float64
+	}
+
+	// LSB is the left side bearing
+	LSB float64
+
+	// RSB is the right side bearing
+	RSB float64
+}
+
+// TextMetrics contains metrics for a text string
+type TextMetrics struct {
+	// XBearing is the horizontal distance from the origin to the leftmost
+	// part of the text
+	XBearing float64
+
+	// YBearing is the vertical distance from the origin to the topmost
+	// part of the text
+	YBearing float64
+
+	// Width is the width of the text bounding box
+	Width float64
+
+	// Height is the height of the text bounding box
+	Height float64
+
+	// XAdvance is the horizontal distance to advance after drawing the text
+	XAdvance float64
+
+	// YAdvance is the vertical distance to advance after drawing the text
+	YAdvance float64
 }
 
 // TextCluster represents cairo_text_cluster_t - text cluster mapping
@@ -632,3 +734,34 @@ const (
 	ColorModeNoColor
 	ColorModeColor
 )
+
+// NewGlyphTransform creates a new identity glyph transform
+func NewGlyphTransform() *GlyphTransform {
+	return &GlyphTransform{
+		Matrix: *NewMatrix(),
+	}
+}
+
+// Scale applies scaling to the glyph transform
+func (gt *GlyphTransform) Scale(sx, sy float64) {
+	scalingMatrix := &Matrix{}
+	scalingMatrix.InitScale(sx, sy)
+	resultMatrix := &Matrix{}
+	MatrixMultiply(resultMatrix, &gt.Matrix, scalingMatrix)
+	gt.Matrix = *resultMatrix
+}
+
+// Rotate applies rotation to the glyph transform (angle in radians)
+func (gt *GlyphTransform) Rotate(angle float64) {
+	rotationMatrix := &Matrix{}
+	rotationMatrix.InitRotate(angle)
+	resultMatrix := &Matrix{}
+	MatrixMultiply(resultMatrix, &gt.Matrix, rotationMatrix)
+	gt.Matrix = *resultMatrix
+}
+
+// Translate applies translation to the glyph transform
+func (gt *GlyphTransform) Translate(tx, ty float64) {
+	gt.OffsetX += tx
+	gt.OffsetY += ty
+}

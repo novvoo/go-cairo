@@ -12,8 +12,6 @@ import (
 
 	"github.com/llgcode/draw2d"
 	"github.com/llgcode/draw2d/draw2dimg"
-	"github.com/llgcode/draw2d/draw2dpdf"
-	"github.com/llgcode/draw2d/draw2dsvg"
 )
 
 // GroupSurface is a temporary surface used for group operations.
@@ -151,13 +149,11 @@ func NewContext(target Surface) Context {
 		}
 	case *pdfSurface:
 		// Create a draw2d PDF context
-		_ = draw2dpdf.NewPdf("P", "mm", "A4")
 		dummyImage := image.NewRGBA(image.Rect(0, 0, int(s.width), int(s.height)))
 		ctx.gc = draw2dimg.NewGraphicContext(dummyImage)
 		// Store a reference in the surface for Finish()
 	case *svgSurface:
 		// Create a draw2d SVG context
-		_ = draw2dsvg.NewSvg()
 		dummyImage := image.NewRGBA(image.Rect(0, 0, int(s.width), int(s.height)))
 		ctx.gc = draw2dimg.NewGraphicContext(dummyImage)
 		// Store a reference in the surface for Finish()

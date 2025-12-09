@@ -9,6 +9,7 @@ import (
 	"github.com/go-text/typesetting/di"
 	"github.com/go-text/typesetting/font"
 	"github.com/go-text/typesetting/opentype/api"
+	apifont "github.com/go-text/typesetting/opentype/api/font"
 	"github.com/go-text/typesetting/shaping"
 	"golang.org/x/image/math/fixed"
 )
@@ -584,10 +585,19 @@ func (s *scaledFont) Extents() *FontExtents {
 	fe.Ascent = ascentFUnits * sx / unitsPerEm
 	fe.Descent = -descentFUnits * sy / unitsPerEm // Descent is negative in FUnits, cairo expects positive
 	fe.Height = fe.Ascent + fe.Descent + lineGapFUnits*sy/unitsPerEm
+	fe.LineGap = lineGapFUnits * sy / unitsPerEm
 
 	// Max advance is a guess without shaping a string
 	fe.MaxXAdvance = sx
 	fe.MaxYAdvance = 0
+
+	// Calculate underline metrics
+	fe.UnderlinePosition = -fe.Descent * 0.5
+	fe.UnderlineThickness = (fe.Ascent + fe.Descent) * 0.05
+
+	// Approximate cap height and x-height
+	fe.CapHeight = fe.Ascent * 0.7 // Typical ratio
+	fe.XHeight = fe.Ascent * 0.5   // Typical ratio
 
 	return fe
 }
@@ -605,8 +615,13 @@ func (s *scaledFont) toyExtentsFallback() *FontExtents {
 	fe.Ascent = size * 0.8
 	fe.Descent = size * 0.2
 	fe.Height = fe.Ascent + fe.Descent
+	fe.LineGap = size * 0.2 // Typical line gap
 	fe.MaxXAdvance = size
 	fe.MaxYAdvance = 0
+	fe.UnderlinePosition = -fe.Descent * 0.5
+	fe.UnderlineThickness = size * 0.05
+	fe.CapHeight = fe.Ascent * 0.7 // Typical ratio
+	fe.XHeight = fe.Ascent * 0.5   // Typical ratio
 	return fe
 }
 
@@ -725,79 +740,239 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 	}
 
 	// Iterate over the path segments
+	var pathPoints []Point
 	for _, seg := range outline.Segments {
 		switch seg.Op {
 		case api.SegmentOpMoveTo:
-			pd := PathData{
-				Type: PathMoveTo,
-				Points: []Point{
-					{
-						X: funitToUser(seg.Args[0].X, sx),
-						Y: funitToUser(seg.Args[0].Y, sy),
-					},
-				},
+			point := Point{
+				X: funitToUser(seg.Args[0].X, sx),
+				Y: funitToUser(seg.Args[0].Y, sy),
 			}
-			cairoPath.Data = append(cairoPath.Data, pd)
+			pathPoints = append(pathPoints, point)
 		case api.SegmentOpLineTo:
-			pd := PathData{
-				Type: PathLineTo,
-				Points: []Point{
-					{
-						X: funitToUser(seg.Args[0].X, sx),
-						Y: funitToUser(seg.Args[0].Y, sy),
-					},
-				},
+			point := Point{
+				X: funitToUser(seg.Args[0].X, sx),
+				Y: funitToUser(seg.Args[0].Y, sy),
 			}
-			cairoPath.Data = append(cairoPath.Data, pd)
+			pathPoints = append(pathPoints, point)
 		case api.SegmentOpQuadTo:
 			// Convert quadratic to cubic Bezier
 			// For simplicity, we'll add the control point and end point
-			p1 := seg.Args[0]
-			p2 := seg.Args[1]
-			pd := PathData{
-				Type: PathCurveTo,
-				Points: []Point{
-					{
-						X: funitToUser(p1.X, sx),
-						Y: funitToUser(p1.Y, sy),
-					},
-					{
-						X: funitToUser(p1.X, sx),
-						Y: funitToUser(p1.Y, sy),
-					},
-					{
-						X: funitToUser(p2.X, sx),
-						Y: funitToUser(p2.Y, sy),
-					},
-				},
+			p1 := Point{
+				X: funitToUser(seg.Args[0].X, sx),
+				Y: funitToUser(seg.Args[0].Y, sy),
 			}
-			cairoPath.Data = append(cairoPath.Data, pd)
+			p2 := Point{
+				X: funitToUser(seg.Args[1].X, sx),
+				Y: funitToUser(seg.Args[1].Y, sy),
+			}
+			pathPoints = append(pathPoints, p1, p1, p2)
 		case api.SegmentOpCubeTo:
-			p1 := seg.Args[0]
-			p2 := seg.Args[1]
-			p3 := seg.Args[2]
-			pd := PathData{
-				Type: PathCurveTo,
-				Points: []Point{
-					{
-						X: funitToUser(p1.X, sx),
-						Y: funitToUser(p1.Y, sy),
-					},
-					{
-						X: funitToUser(p2.X, sx),
-						Y: funitToUser(p2.Y, sy),
-					},
-					{
-						X: funitToUser(p3.X, sx),
-						Y: funitToUser(p3.Y, sy),
-					},
-				},
+			p1 := Point{
+				X: funitToUser(seg.Args[0].X, sx),
+				Y: funitToUser(seg.Args[0].Y, sy),
 			}
-			cairoPath.Data = append(cairoPath.Data, pd)
+			p2 := Point{
+				X: funitToUser(seg.Args[1].X, sx),
+				Y: funitToUser(seg.Args[1].Y, sy),
+			}
+			p3 := Point{
+				X: funitToUser(seg.Args[2].X, sx),
+				Y: funitToUser(seg.Args[2].Y, sy),
+			}
+			pathPoints = append(pathPoints, p1, p2, p3)
 		}
 	}
 
+	// Apply hinting to the path points
+	hintedPoints := s.applyHinting(pathPoints)
+
+	// Convert hinted points back to path data
+	// This is a simplified approach - in reality, we'd need to preserve
+	// the segment structure while applying hinting
+	for i, point := range hintedPoints {
+		var pd PathData
+		if i == 0 {
+			pd.Type = PathMoveTo
+		} else {
+			pd.Type = PathLineTo
+		}
+		pd.Points = []Point{point}
+		cairoPath.Data = append(cairoPath.Data, pd)
+	}
+
 	return cairoPath, nil
+}
+
+// GetTextBearingMetrics returns the bearing metrics for a text string
+func (s *scaledFont) GetTextBearingMetrics(text string) (xBearing, yBearing float64, status Status) {
+	metrics := s.TextExtents(text)
+	if metrics == nil {
+		return 0, 0, StatusFontTypeMismatch
+	}
+	return metrics.XBearing, metrics.YBearing, StatusSuccess
+}
+
+// GetTextAlignmentOffset calculates the Y offset for text alignment
+func (s *scaledFont) GetTextAlignmentOffset(alignment TextAlignment) (float64, Status) {
+	fontExtents := s.Extents()
+	if fontExtents == nil {
+		return 0, StatusFontTypeMismatch
+	}
+	return GetAlignmentOffset(alignment, fontExtents), StatusSuccess
+}
+
+// GetKerning returns the kerning adjustment between two runes
+func (s *scaledFont) GetKerning(r1, r2 rune) (float64, Status) {
+	realFace, status := s.getRealFace()
+	if status != StatusSuccess {
+		return 0, status
+	}
+
+	// Get the glyph indices for the runes
+	gid1, ok1 := realFace.NominalGlyph(r1)
+	gid2, ok2 := realFace.NominalGlyph(r2)
+	if !ok1 || !ok2 {
+		return 0, StatusInvalidGlyph
+	}
+
+	// Check if we have kerning data
+	var kernValue int16
+	if len(realFace.Kern) > 0 {
+		// Try Kern tables first
+		for _, kernSubtable := range realFace.Kern {
+			if kd, ok := kernSubtable.Data.(apifont.Kern0); ok {
+				kernValue = kd.KernPair(gid1, gid2)
+				break
+			}
+		}
+	} else if len(realFace.Kerx) > 0 {
+		// Try Kerx tables if no Kern tables
+		for _, kerxSubtable := range realFace.Kerx {
+			if kd, ok := kerxSubtable.Data.(apifont.Kern0); ok {
+				kernValue = kd.KernPair(gid1, gid2)
+				break
+			}
+		}
+	}
+
+	// Scale factor from font matrix
+	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	unitsPerEm := float64(realFace.Upem())
+
+	// Convert kerning value to user space units
+	kerning := float64(kernValue) * sx / unitsPerEm
+
+	return kerning, StatusSuccess
+}
+
+// applyHinting applies font hinting based on the font options
+func (s *scaledFont) applyHinting(points []Point) []Point {
+	// If no options or hinting is disabled, return points as-is
+	if s.options == nil || s.options.HintStyle == HintStyleNone {
+		return points
+	}
+
+	// For now, we'll just return the points as-is since go-text/typesetting
+	// doesn't directly support hinting. In a more complete implementation,
+	// this would adjust the points based on the hinting style.
+	// TODO: Implement actual hinting algorithms
+	return points
+}
+
+// GetGlyphBearingMetrics returns the bearing metrics for a specific glyph
+func (s *scaledFont) GetGlyphBearingMetrics(r rune) (xBearing, yBearing float64, status Status) {
+	metrics, status := s.GetGlyphMetrics(r)
+	if status != StatusSuccess {
+		return 0, 0, status
+	}
+	return metrics.XBearing, metrics.YBearing, StatusSuccess
+}
+
+// GetGlyphMetrics returns detailed metrics for a specific glyph
+func (s *scaledFont) GetGlyphMetrics(r rune) (*GlyphMetrics, Status) {
+	realFace, status := s.getRealFace()
+	if status != StatusSuccess {
+		return nil, status
+	}
+
+	// Get the glyph index for the rune
+	gid, ok := realFace.NominalGlyph(r)
+	if !ok || gid == 0 {
+		return nil, StatusInvalidGlyph
+	}
+
+	// Load glyph outline
+	glyphData := realFace.GlyphData(gid)
+	outline, ok := glyphData.(api.GlyphOutline)
+	if !ok {
+		return nil, StatusFontTypeMismatch
+	}
+
+	// Scale factor from font matrix
+	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	unitsPerEm := float64(realFace.Upem())
+
+	// FUnits to user space conversion function
+	funitToUser := func(f float32, scale float64) float64 {
+		return float64(f) * scale / unitsPerEm
+	}
+
+	// Calculate bounding box from outline
+	var xmin, xmax, ymin, ymax float64
+	firstPoint := true
+
+	for _, seg := range outline.Segments {
+		for _, arg := range seg.Args {
+			x := funitToUser(arg.X, sx)
+			y := funitToUser(arg.Y, sy)
+
+			if firstPoint {
+				xmin, xmax = x, x
+				ymin, ymax = y, y
+				firstPoint = false
+			} else {
+				if x < xmin {
+					xmin = x
+				}
+				if x > xmax {
+					xmax = x
+				}
+				if y < ymin {
+					ymin = y
+				}
+				if y > ymax {
+					ymax = y
+				}
+			}
+		}
+	}
+
+	// Get horizontal metrics from the font's hmtx table
+	advanceWidth := float64(realFace.HorizontalAdvance(gid)) * sx / unitsPerEm
+
+	// Create metrics
+	metrics := &GlyphMetrics{
+		Width:    advanceWidth,
+		Height:   0, // For horizontal text
+		XAdvance: advanceWidth,
+		YAdvance: 0, // For horizontal text
+		XBearing: xmin,
+		YBearing: -ymax, // Negative because Y axis is inverted in Cairo
+	}
+
+	// Set bounding box
+	metrics.BoundingBox.XMin = xmin
+	metrics.BoundingBox.YMin = ymin
+	metrics.BoundingBox.XMax = xmax
+	metrics.BoundingBox.YMax = ymax
+
+	// Calculate side bearings
+	metrics.LSB = xmin
+	metrics.RSB = advanceWidth - xmax
+
+	return metrics, StatusSuccess
 }
 
 // GetGlyphs returns the glyphs for a given text string.

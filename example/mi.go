@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"go-cairo/pkg/cairo"
+	"github.com/novvoo/go-cairo/pkg/cairo"
 )
 
 // 绘制圆角矩形路径
