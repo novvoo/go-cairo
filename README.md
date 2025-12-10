@@ -70,6 +70,61 @@ The library is organized into several packages:
 - `internal/font`: Font and text handling
 - `internal/image`: Image format support
 
+## 测试示例
+
+`test` 目录包含了多个示例程序，展示了 go-cairo 的各种功能：
+
+### 综合功能测试
+
+**comprehensive.go** - 完整的功能演示，包括：
+- 基础图形绘制（矩形、圆形、线条）
+- 文本渲染和对齐
+- 贝塞尔曲线
+- 坐标变换
+
+![综合测试效果](test/comprehensive_test.png)
+
+运行方式：
+```bash
+cd test
+go run comprehensive.go
+```
+
+### 圆形绘制对比
+
+**circle_comparison.go** - 对比 `Arc` 和 `DrawCircle` 两种绘制圆形的方法
+
+![圆形对比](test/circle_comparison.png)
+
+### PangoCairo 文本渲染
+
+**pangocairo.go** - 展示 PangoCairo 文本渲染功能：
+- 字体加载和配置
+- 文本度量和定位
+- 字形分析
+
+![PangoCairo 示例](test/pangocairo.png)
+
+### 文本边界框分析
+
+**mi_with_bounds.go** - 可视化文本边界框和字符间距
+
+![文本边界框](test/mi_with_bounds.png)
+
+### 字形分析工具
+
+**glyph_analysis.go** - 字形渲染和碰撞检测分析
+
+![字形分析](test/glyph_simple.png)
+
+**glyph_outline_debug.go** - 字形轮廓调试工具，输出字形的详细信息
+
+### 与 gg 库对比
+
+**comprehensive-gg.go** - 使用 fogleman/gg 库实现相同效果，用于对比验证
+
+![gg 库对比](comprehensive_test_gg.png)
+
 ## License
 
 This project is dual-licensed under LGPL 2.1 and MPL 1.1, same as the original Cairo library.
