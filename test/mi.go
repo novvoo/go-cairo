@@ -1,3 +1,6 @@
+//go:build ignore
+// +build ignore
+
 package main
 
 import (
@@ -65,18 +68,6 @@ func main() {
 	ctx.Stroke()
 
 	// === 4. 使用PangoCairo渲染"MI"文字
-	ctx.SelectFontFace("Go Regular", cairo.FontSlantNormal, cairo.FontWeightBold)
-	ctx.SetFontSize(48)
-
-	// 获取文本尺寸
-	mExtents := ctx.TextExtents("M")
-	iExtents := ctx.TextExtents("I")
-	totalWidth := mExtents.Width + iExtents.Width + 2.0 // 加上间距
-
-	// 计算居中位置
-	midx := rectX + rectWidth/2 - totalWidth/2
-	midy := rectY + rectHeight/2 + ctx.FontExtents().Ascent/2 - ctx.FontExtents().Descent/2
-
 	// 使用PangoCairo创建布局
 	layout := ctx.PangoCairoCreateLayout().(*cairo.PangoCairoLayout)
 
@@ -87,43 +78,117 @@ func main() {
 	fontDesc.SetSize(48.0)
 	layout.SetFontDescription(fontDesc)
 
-	// 渲染"M"
+	// 获取文本尺寸
+	layout.SetText("M")
+	mExtents := layout.GetPixelExtents()
+	layout.SetText("I")
+	iExtents := layout.GetPixelExtents()
+	totalWidth := mExtents.Width + iExtents.Width + 2.0 // 加上间距
+
+	// 计算居中位置
+	fontExtents := layout.GetFontExtents()
+	midx := rectX + rectWidth/2 - totalWidth/2
+	midy := rectY + rectHeight/2 + fontExtents.Ascent/2 - fontExtents.Descent/2
+
+	// === 坐标系统诊断 ===
+	matrix := ctx.GetMatrix()
+	fmt.Printf("\n=== 坐标系统诊断 ===\n")
+	fmt.Printf("当前变换矩阵: xx=%.2f, yx=%.2f, xy=%.2f, yy=%.2f, x0=%.2f, y0=%.2f\n",
+		matrix.XX, matrix.YX, matrix.XY, matrix.YY, matrix.X0, matrix.Y0)
+
+	isFlippedY := matrix.YY < 0
+	if isFlippedY {
+		fmt.Printf("✅ Y轴翻转: 是 (YY=%.2f < 0) - 这是Cairo的标准配置\n", matrix.YY)
+		fmt.Printf("   → 库会自动处理文字方向，无需手动修正\n")
+	} else {
+		fmt.Printf("⚠️  Y轴翻转: 否 (YY=%.2f >= 0) - 非标准配置\n", matrix.YY)
+	}
+
+	// === 计算字母间距，防止重叠 ===
+	baseSpacing := 2.0
+	dynamicSpacing := fontExtents.Height * 0.05 // 字体高度的5%
+	letterSpacing := math.Max(baseSpacing, dynamicSpacing)
+
+	// === 渲染文字（让库自动处理坐标系）===
+	fmt.Printf("\n=== 渲染文字 ===\n")
+
+	// 渲染 M
 	layout.SetText("M")
 	ctx.SetSourceRGB(1.0, 1.0, 1.0)
 	ctx.MoveTo(midx, midy)
 	ctx.PangoCairoShowText(layout)
+	fmt.Printf("✓ 渲染字母 'M' 在位置 (%.2f, %.2f)\n", midx, midy)
 
-	// 渲染"I"，确保不会重叠
-	iStartX := midx + mExtents.Width + 2.0
+	// 渲染 I（使用动态间距）
+	iStartX := midx + mExtents.Width + letterSpacing
 	layout.SetText("I")
 	ctx.MoveTo(iStartX, midy)
 	ctx.PangoCairoShowText(layout)
+	fmt.Printf("✓ 渲染字母 'I' 在位置 (%.2f, %.2f)\n", iStartX, midy)
+	fmt.Printf("✓ 字母间距: %.2f 像素\n", letterSpacing)
 
-	// 打印位置信息
-	fmt.Printf("=== MI 整体位置信息 ===\n")
+	// === 检测字母重叠 ===
+	// 计算M的实际边界框
+	mLeft := midx + mExtents.X
+	mRight := midx + mExtents.X + mExtents.Width
+	mTop := midy + mExtents.Y
+	mBottom := midy + mExtents.Y + mExtents.Height
+
+	// 计算I的实际边界框
+	iLeft := iStartX + iExtents.X
+	iRight := iStartX + iExtents.X + iExtents.Width
+	iTop := midy + iExtents.Y
+	iBottom := midy + iExtents.Y + iExtents.Height
+
+	// 检测水平重叠
+	hasOverlap := false
+	overlapAmount := 0.0
+	if mRight > iLeft {
+		hasOverlap = true
+		overlapAmount = mRight - iLeft
+	}
+
+	fmt.Printf("\n=== 字母重叠检测 ===\n")
+	fmt.Printf("M边界: 左=%.2f, 右=%.2f, 上=%.2f, 下=%.2f\n", mLeft, mRight, mTop, mBottom)
+	fmt.Printf("I边界: 左=%.2f, 右=%.2f, 上=%.2f, 下=%.2f\n", iLeft, iRight, iTop, iBottom)
+	fmt.Printf("字母间距: %.2f 像素\n", letterSpacing)
+	fmt.Printf("实际间隙: %.2f 像素\n", iLeft-mRight)
+
+	if hasOverlap {
+		fmt.Printf("❌ 检测到字母重叠！重叠量: %.2f 像素\n", overlapAmount)
+		fmt.Printf("重叠原因分析:\n")
+		fmt.Printf("  - M的右边界(%.2f) > I的左边界(%.2f)\n", mRight, iLeft)
+		fmt.Printf("  - 可能原因: 字体度量不准确或间距设置过小\n")
+		fmt.Printf("  - 建议间距: %.2f 像素（当前: %.2f）\n", overlapAmount+5.0, letterSpacing)
+	} else {
+		fmt.Printf("✅ 字母无重叠，间隙正常\n")
+	}
+
+	// === 详细位置信息 ===
+	fmt.Printf("\n=== MI 整体位置信息 ===\n")
 	fmt.Printf("MI起始位置: (%.2f, %.2f)\n", midx, midy)
 	fmt.Printf("MI文本总宽度: %.2f\n", totalWidth)
+	fmt.Printf("实际渲染宽度: %.2f\n", iRight-mLeft)
 
-	fmt.Printf("\n=== 字母 M 位置信息 ===\n")
+	fmt.Printf("\n=== 字母 M 详细信息 ===\n")
 	fmt.Printf("M起始位置: (%.2f, %.2f)\n", midx, midy)
 	fmt.Printf("M文本范围: 宽度=%.2f, 高度=%.2f\n", mExtents.Width, mExtents.Height)
-	fmt.Printf("M边界信息: XBearing=%.2f, YBearing=%.2f\n", mExtents.XBearing, mExtents.YBearing)
-	fmt.Printf("M左上角坐标: (%.2f, %.2f)\n", midx+mExtents.XBearing, midy+mExtents.YBearing)
-	fmt.Printf("M左下角坐标: (%.2f, %.2f)\n", midx+mExtents.XBearing, midy+mExtents.YBearing+mExtents.Height)
-	fmt.Printf("M右上角坐标: (%.2f, %.2f)\n", midx+mExtents.XBearing+mExtents.Width, midy+mExtents.YBearing)
-	fmt.Printf("M右下角坐标: (%.2f, %.2f)\n", midx+mExtents.XBearing+mExtents.Width, midy+mExtents.YBearing+mExtents.Height)
+	fmt.Printf("M边界偏移: X=%.2f, Y=%.2f\n", mExtents.X, mExtents.Y)
+	fmt.Printf("M实际边界框:\n")
+	fmt.Printf("  左上角: (%.2f, %.2f)\n", mLeft, mTop)
+	fmt.Printf("  右上角: (%.2f, %.2f)\n", mRight, mTop)
+	fmt.Printf("  左下角: (%.2f, %.2f)\n", mLeft, mBottom)
+	fmt.Printf("  右下角: (%.2f, %.2f)\n", mRight, mBottom)
 
-	fmt.Printf("\n=== 字母 I 位置信息 ===\n")
-	// 修复字母重叠问题：正确计算I的起始位置
-	// I的起始位置应该是M的起始位置加上M的宽度，再加上一些间距以确保完全分离
-	iStartX = midx + mExtents.Width + 2.0 // 添加2像素的间距
+	fmt.Printf("\n=== 字母 I 详细信息 ===\n")
 	fmt.Printf("I起始位置: (%.2f, %.2f)\n", iStartX, midy)
 	fmt.Printf("I文本范围: 宽度=%.2f, 高度=%.2f\n", iExtents.Width, iExtents.Height)
-	fmt.Printf("I边界信息: XBearing=%.2f, YBearing=%.2f\n", iExtents.XBearing, iExtents.YBearing)
-	fmt.Printf("I左上角坐标: (%.2f, %.2f)\n", iStartX+iExtents.XBearing, midy+iExtents.YBearing)
-	fmt.Printf("I左下角坐标: (%.2f, %.2f)\n", iStartX+iExtents.XBearing, midy+iExtents.YBearing+iExtents.Height)
-	fmt.Printf("I右上角坐标: (%.2f, %.2f)\n", iStartX+iExtents.XBearing+iExtents.Width, midy+iExtents.YBearing)
-	fmt.Printf("I右下角坐标: (%.2f, %.2f)\n", iStartX+iExtents.XBearing+iExtents.Width, midy+iExtents.YBearing+iExtents.Height)
+	fmt.Printf("I边界偏移: X=%.2f, Y=%.2f\n", iExtents.X, iExtents.Y)
+	fmt.Printf("I实际边界框:\n")
+	fmt.Printf("  左上角: (%.2f, %.2f)\n", iLeft, iTop)
+	fmt.Printf("  右上角: (%.2f, %.2f)\n", iRight, iTop)
+	fmt.Printf("  左下角: (%.2f, %.2f)\n", iLeft, iBottom)
+	fmt.Printf("  右下角: (%.2f, %.2f)\n", iRight, iBottom)
 
 	// === 5. 保存图片
 	if imgSurf, ok := surface.(cairo.ImageSurface); ok {

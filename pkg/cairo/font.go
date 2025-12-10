@@ -14,12 +14,8 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-var defaultFont font.Face
-
 func init() {
-	// Load default font and initialize draw2d fonts
-	f, _ := GetDefaultFont()
-	defaultFont = f
+	// Initialize draw2d fonts
 	InitDraw2DFonts()
 }
 

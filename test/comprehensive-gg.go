@@ -1,3 +1,6 @@
+//go:build ignore
+// +build ignore
+
 // main.go - 终极修复版：移除 Hinting（可选参数），确保100%兼容
 package main
 

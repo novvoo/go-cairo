@@ -1,220 +1,328 @@
+//go:build ignore
+// +build ignore
+
 package main
 
 import (
 	"fmt"
 	"log"
-	"reflect"
+	"os"
+	"path/filepath"
 
 	"github.com/novvoo/go-cairo/pkg/cairo"
 )
 
 func main() {
+	fmt.Println("=== PangoCairo 测试开始 ===\n")
+
 	// Create a new image surface
-	surface := cairo.NewImageSurface(cairo.FormatARGB32, 400, 200)
+	width, height := 400, 200
+	surface := cairo.NewImageSurface(cairo.FormatARGB32, width, height)
 	defer surface.Destroy()
+	fmt.Printf("✓ 创建图像表面: %dx%d\n", width, height)
 
 	// Create a context
 	context := cairo.NewContext(surface)
 	defer context.Destroy()
+	fmt.Printf("✓ 创建 Cairo 上下文\n")
 
-	// Set background color
-	context.SetSourceRGB(1, 1, 1) // White background
+	// Set background color to light blue for better visibility
+	context.SetSourceRGB(0.9, 0.95, 1.0) // Light blue background
 	context.Paint()
+	fmt.Printf("✓ 设置背景颜色: 浅蓝色 (0.9, 0.95, 1.0)\n")
 
-	// Set text color
-	context.SetSourceRGB(0, 0, 0) // Black text
+	// Set text color to dark blue
+	context.SetSourceRGB(0.0, 0.0, 0.5) // Dark blue text
+	fmt.Printf("✓ 设置文字颜色: 深蓝色 (0.0, 0.0, 0.5)\n\n")
 
-	// Simple text rendering
-	context.SelectFontFace("sans", cairo.FontSlantNormal, cairo.FontWeightNormal)
-	context.SetFontSize(24)
+	// Create a PangoCairo font directly to get the proper exported ScaledFont type
+	fontFamily := "sans"
+	fontSize := 24.0
+	pangoFont := cairo.NewPangoCairoFont(fontFamily, cairo.FontSlantNormal, cairo.FontWeightNormal)
+	defer pangoFont.Destroy()
+	fmt.Printf("✓ 创建 PangoCairo 字体: %s\n", fontFamily)
+
+	// Create a font matrix for scaling
+	// Use positive Y scale - the context already has Y-flip applied
+	fontMatrix := cairo.NewMatrix()
+	fontMatrix.InitScale(fontSize, fontSize)
+	fmt.Printf("✓ 设置字体大小: %.1f\n", fontSize)
+
+	// Create CTM (Current Transformation Matrix)
+	ctm := cairo.NewMatrix()
+	ctm.InitIdentity()
+
+	// Create font options
+	fontOptions := cairo.NewFontOptions()
+
+	// Create a PangoCairo scaled font (this will be the exported type)
+	scaledFont := cairo.NewPangoCairoScaledFont(pangoFont, fontMatrix, ctm, fontOptions)
+	defer scaledFont.Destroy()
+
+	// Set the scaled font on the context
+	context.SetScaledFont(scaledFont)
+
+	// Now we have a proper exported PangoCairoScaledFont
+	fmt.Printf("✓ ScaledFont 类型: %T\n", scaledFont)
+	fmt.Printf("✓ 成功创建 PangoCairoScaledFont\n\n")
+
+	// === 文字翻转诊断 ===
+	printTextOrientationDiagnostics(context, fontMatrix, scaledFont)
 
 	// Move to position and show text
-	context.MoveTo(50, 100)
+	startX, startY := 50.0, 100.0
+	context.MoveTo(startX, startY)
+	fmt.Printf("=== 文字渲染 ===\n")
+	fmt.Printf("起始位置: (%.1f, %.1f)\n", startX, startY)
 
-	// Get the scaled font from context for our new functionality
-	sf := context.GetScaledFont()
-	if sf == nil {
-		log.Fatal("Failed to get scaled font")
-	}
-	defer sf.Destroy()
-
-	// 打印实际的类型信息
-	fmt.Printf("ScaledFont 实际类型: %T\n", sf)
-	fmt.Printf("ScaledFont 反射类型: %s\n", reflect.TypeOf(sf).String())
-
-	// 检查是否是 PangoCairoScaledFont 类型
-	if pangoFont, ok := sf.(*cairo.PangoCairoScaledFont); ok {
-		fmt.Println("成功断言为 PangoCairoScaledFont")
-		printGlyphInfo(context, pangoFont, "Hello, Cairo!")
-	} else {
-		// 对于其他类型的 ScaledFont，我们只需要检查它是否实现了接口
-		// 由于所有实现都满足 cairo.ScaledFont 接口，我们可以直接使用
-		fmt.Println("是标准 ScaledFont 类型，使用通用方法")
-		printGenericGlyphInfo(context, sf, "Hello, Cairo!")
-	}
-
-	// Save to PNG
-	if imageSurface, ok := surface.(cairo.ImageSurface); ok {
-		// 确保目录存在
-		status := imageSurface.WriteToPNG("pangocairo.png")
-		if status != cairo.StatusSuccess {
-			log.Fatal("Failed to save PNG:", status)
-		}
-	} else {
-		log.Fatal("Surface is not an ImageSurface")
-	}
-
-	fmt.Println("Simple test saved to pangocairo.png")
-}
-
-func printGlyphInfo(context cairo.Context, pangoFont *cairo.PangoCairoScaledFont, text string) {
 	// Get current point BEFORE showing text
 	x, y := context.GetCurrentPoint()
+	fmt.Printf("当前点: (%.1f, %.1f)\n", x, y)
 
-	// Show text and get glyphs for analysis
-	context.ShowText(text)
+	// Show text and get glyphs for analysis using PangoCairo
+	text := "Hello, Cairo!"
+	fmt.Printf("渲染文本: \"%s\"\n\n", text)
 
-	// Get glyphs for the text
-	glyphs, _, _, status := pangoFont.TextToGlyphs(x, y, text)
-	if status != cairo.StatusSuccess {
-		log.Fatal("Failed to get glyphs:", status)
+	layout := context.PangoCairoCreateLayout().(*cairo.PangoCairoLayout)
+	fontDesc := cairo.NewPangoFontDescription()
+	fontDesc.SetFamily(fontFamily)
+	fontDesc.SetSize(fontSize)
+	layout.SetFontDescription(fontDesc)
+	layout.SetText(text)
+
+	// Show the text
+	context.PangoCairoShowText(layout)
+	fmt.Printf("✓ 文字已渲染到画布\n\n")
+
+	// Verify rendering by checking if pixels were modified
+	if imageSurface, ok := surface.(cairo.ImageSurface); ok {
+		data := imageSurface.GetData()
+		hasNonBackground := false
+		// Check if any pixels are not the background color
+		for i := 0; i < len(data); i += 4 {
+			b, g, r := data[i], data[i+1], data[i+2]
+			// Check if pixel is not background color (allowing some tolerance)
+			if r < 220 || g < 235 || b < 250 {
+				hasNonBackground = true
+				break
+			}
+		}
+		if hasNonBackground {
+			fmt.Printf("✓ 验证成功: 检测到文字像素已渲染\n\n")
+		} else {
+			fmt.Printf("⚠ 警告: 未检测到文字像素，可能渲染失败\n\n")
+		}
 	}
 
-	// Print information about each glyph
-	fmt.Println("=== 字符坐标和碰撞检测信息 ===")
-	pangoFont.PrintTextGlyphsInfo(text, glyphs)
+	// Print glyph information using the built-in method
+	printGlyphInformation(context, scaledFont, text, x, y)
 
-	// 额外打印每个字母的详细位置信息和冲突检测
-	fmt.Println("=== 每个字母的详细位置信息 ===")
-	runes := []rune(text)
-	for i, glyph := range glyphs {
-		var char rune
-		if i < len(runes) {
-			char = runes[i]
-		} else {
-			char = rune(glyph.Index)
-		}
+	// Save to PNG with absolute path
+	fmt.Println("=== 保存图像 ===")
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fatal("获取工作目录失败:", err)
+	}
 
-		// 获取字形的角落坐标
-		coords, status := pangoFont.GetGlyphCornerCoordinates(glyph)
+	filename := filepath.Join(wd, "pangocairo.png")
+	fmt.Printf("保存路径: %s\n", filename)
+
+	if imageSurface, ok := surface.(cairo.ImageSurface); ok {
+		status := imageSurface.WriteToPNG(filename)
 		if status != cairo.StatusSuccess {
-			fmt.Printf("无法获取字符 '%c' 的坐标信息: %v\n", char, status)
-			continue
+			log.Fatal("保存 PNG 失败:", status)
 		}
+		fmt.Printf("✓ 图像已成功保存\n")
+	} else {
+		log.Fatal("Surface 不是 ImageSurface 类型")
+	}
 
-		// 打印字形的详细位置信息
-		fmt.Printf("字符 '%c':\n", char)
-		fmt.Printf("  位置: (%.2f, %.2f)\n", glyph.X, glyph.Y)
-		fmt.Printf("  左上角: (%.2f, %.2f)\n", coords.TopLeftX, coords.TopLeftY)
-		fmt.Printf("  右上角: (%.2f, %.2f)\n", coords.TopRightX, coords.TopRightY)
-		fmt.Printf("  左下角: (%.2f, %.2f)\n", coords.BottomLeftX, coords.BottomLeftY)
-		fmt.Printf("  右下角: (%.2f, %.2f)\n", coords.BottomRightX, coords.BottomRightY)
+	fmt.Println("\n=== PangoCairo 测试完成 ===")
+	fmt.Printf("请查看生成的图像: pangocairo.png\n")
+}
 
-		// 检查与其他字符的冲突
-		hasCollision := false
-		for j := i + 1; j < len(glyphs); j++ {
-			collides, status := pangoFont.CheckGlyphCollision(glyph, glyphs[j])
-			if status == cairo.StatusSuccess && collides {
+// printTextOrientationDiagnostics 打印文字方向和翻转的详细诊断信息
+func printTextOrientationDiagnostics(context cairo.Context, fontMatrix *cairo.Matrix, scaledFont cairo.ScaledFont) {
+	fmt.Println("=== 文字方向诊断 ===")
+
+	// 1. 获取上下文变换矩阵
+	ctxMatrix := context.GetMatrix()
+	fmt.Println("\n【上下文变换矩阵】")
+	fmt.Printf("  XX (X轴缩放): %8.4f\n", ctxMatrix.XX)
+	fmt.Printf("  YX (X轴倾斜): %8.4f\n", ctxMatrix.YX)
+	fmt.Printf("  XY (Y轴倾斜): %8.4f\n", ctxMatrix.XY)
+	fmt.Printf("  YY (Y轴缩放): %8.4f\n", ctxMatrix.YY)
+	fmt.Printf("  X0 (X平移):   %8.4f\n", ctxMatrix.X0)
+	fmt.Printf("  Y0 (Y平移):   %8.4f\n", ctxMatrix.Y0)
+
+	// 2. 字体矩阵信息
+	fmt.Println("\n【字体矩阵】")
+	fmt.Printf("  XX (X轴缩放): %8.4f\n", fontMatrix.XX)
+	fmt.Printf("  YX (X轴倾斜): %8.4f\n", fontMatrix.YX)
+	fmt.Printf("  XY (Y轴倾斜): %8.4f\n", fontMatrix.XY)
+	fmt.Printf("  YY (Y轴缩放): %8.4f\n", fontMatrix.YY)
+	fmt.Printf("  X0 (X平移):   %8.4f\n", fontMatrix.X0)
+	fmt.Printf("  Y0 (Y平移):   %8.4f\n", fontMatrix.Y0)
+
+	// 3. 分析坐标系状态
+	fmt.Println("\n【坐标系状态分析】")
+	ctxFlippedX := ctxMatrix.XX < 0
+	ctxFlippedY := ctxMatrix.YY < 0
+	fontFlippedX := fontMatrix.XX < 0
+	fontFlippedY := fontMatrix.YY < 0
+
+	if ctxFlippedX {
+		fmt.Printf("  ❌ 上下文X轴翻转: 是 (XX=%.4f < 0)\n", ctxMatrix.XX)
+	} else {
+		fmt.Printf("  ✅ 上下文X轴翻转: 否 (XX=%.4f >= 0)\n", ctxMatrix.XX)
+	}
+
+	if ctxFlippedY {
+		fmt.Printf("  ⚠️  上下文Y轴翻转: 是 (YY=%.4f < 0)\n", ctxMatrix.YY)
+		fmt.Printf("      → 这是Cairo的标准行为，用于匹配图像坐标系\n")
+	} else {
+		fmt.Printf("  ✅ 上下文Y轴翻转: 否 (YY=%.4f >= 0)\n", ctxMatrix.YY)
+	}
+
+	if fontFlippedX {
+		fmt.Printf("  ❌ 字体X轴翻转: 是 (XX=%.4f < 0)\n", fontMatrix.XX)
+	} else {
+		fmt.Printf("  ✅ 字体X轴翻转: 否 (XX=%.4f >= 0)\n", fontMatrix.XX)
+	}
+
+	if fontFlippedY {
+		fmt.Printf("  ❌ 字体Y轴翻转: 是 (YY=%.4f < 0)\n", fontMatrix.YY)
+		fmt.Printf("      → 这会导致字形上下颠倒！\n")
+	} else {
+		fmt.Printf("  ✅ 字体Y轴翻转: 否 (YY=%.4f >= 0)\n", fontMatrix.YY)
+		fmt.Printf("      → 正确：字体矩阵使用正Y缩放，配合上下文的Y翻转\n")
+	}
+
+	// 4. 获取字体度量
+	fontExtents := scaledFont.Extents()
+	fmt.Println("\n【字体度量信息】")
+	fmt.Printf("  Ascent (上升高度):  %.2f\n", fontExtents.Ascent)
+	fmt.Printf("  Descent (下降高度): %.2f\n", fontExtents.Descent)
+	fmt.Printf("  Height (总高度):    %.2f\n", fontExtents.Height)
+	fmt.Printf("  LineGap (行间距):   %.2f\n", fontExtents.LineGap)
+
+	// 5. 综合诊断
+	fmt.Println("\n【综合诊断结果】")
+	hasIssue := false
+
+	// 检查是否有问题的配置
+	if fontFlippedY && ctxFlippedY {
+		fmt.Println("  ❌ 错误配置: 字体和上下文都进行了Y轴翻转")
+		fmt.Println("     → 这会导致双重翻转，文字显示正常但逻辑错误")
+		hasIssue = true
+	} else if fontFlippedY && !ctxFlippedY {
+		fmt.Println("  ❌ 错误配置: 只有字体进行了Y轴翻转")
+		fmt.Println("     → 这会导致文字上下颠倒")
+		hasIssue = true
+	} else if !fontFlippedY && !ctxFlippedY {
+		fmt.Println("  ⚠️  非标准配置: 字体和上下文都没有Y轴翻转")
+		fmt.Println("     → 文字可能显示正常，但不符合Cairo标准")
+		hasIssue = true
+	} else if !fontFlippedY && ctxFlippedY {
+		fmt.Println("  ✅ 正确配置: 上下文Y轴翻转，字体使用正Y缩放")
+		fmt.Println("     → 这是标准的Cairo文本渲染配置")
+		fmt.Println("     → 上下文的Y翻转将图像坐标系转换为Cairo坐标系")
+		fmt.Println("     → 字体的正Y缩放在Cairo坐标系中正确渲染字形")
+	}
+
+	if ctxFlippedX || fontFlippedX {
+		fmt.Println("  ⚠️  检测到X轴翻转，这会导致文字左右镜像")
+		hasIssue = true
+	}
+
+	// 6. 提供修复建议
+	if hasIssue {
+		fmt.Println("\n【修复建议】")
+		if fontFlippedY {
+			fmt.Println("  1. 修改字体矩阵创建代码:")
+			fmt.Println("     fontMatrix.InitScale(fontSize, fontSize)  // 使用正Y缩放")
+			fmt.Println()
+			fmt.Println("  2. 确保GlyphPath函数中的翻转逻辑:")
+			fmt.Println("     flipY := s.fontMatrix.YY > 0  // 当字体矩阵YY为正时翻转")
+		}
+		if fontFlippedY && ctxFlippedY {
+			fmt.Println("  3. 移除字体矩阵中的负Y缩放，让上下文处理Y轴翻转")
+		}
+	}
+
+	fmt.Println()
+}
+
+// printGlyphInformation prints detailed information about glyphs using the built-in PangoCairo methods
+func printGlyphInformation(_ cairo.Context, scaledFont cairo.ScaledFont, text string, startX, startY float64) {
+	fmt.Println("=== 字形分析 ===")
+
+	// Get glyphs for the text
+	glyphs, _, _, status := scaledFont.TextToGlyphs(startX, startY, text)
+	if status != cairo.StatusSuccess {
+		log.Fatal("获取字形失败:", status)
+	}
+	fmt.Printf("✓ 成功获取 %d 个字形\n\n", len(glyphs))
+
+	// Since we know this is a PangoCairoScaledFont, we can cast it
+	if pangoCairoFont, ok := scaledFont.(*cairo.PangoCairoScaledFont); ok {
+		// Print detailed information for each glyph
+		fmt.Println("=== 每个字符的详细信息 ===")
+		runes := []rune(text)
+		collisionCount := 0
+
+		for i, glyph := range glyphs {
+			var char rune
+			if i < len(runes) {
+				char = runes[i]
+			} else {
+				char = rune(glyph.Index)
+			}
+
+			fmt.Printf("--- 字符 #%d: '%c' ---\n", i+1, char)
+
+			// Get and print metrics
+			metrics, status := pangoCairoFont.GetGlyphMetrics(char)
+			if status == cairo.StatusSuccess {
+				fmt.Printf("  位置: (%.2f, %.2f)\n", glyph.X, glyph.Y)
+				fmt.Printf("  边界框: [%.2f, %.2f] -> [%.2f, %.2f]\n",
+					glyph.X+metrics.BoundingBox.XMin, glyph.Y+metrics.BoundingBox.YMin,
+					glyph.X+metrics.BoundingBox.XMax, glyph.Y+metrics.BoundingBox.YMax)
+				fmt.Printf("  宽度: %.2f, 高度: %.2f\n",
+					metrics.BoundingBox.XMax-metrics.BoundingBox.XMin,
+					metrics.BoundingBox.YMax-metrics.BoundingBox.YMin)
+				fmt.Printf("  Advance: %.2f\n", metrics.XAdvance)
+			}
+
+			// Check for collisions with subsequent glyphs
+			hasCollision := false
+			for j := i + 1; j < len(glyphs); j++ {
 				var nextChar rune
 				if j < len(runes) {
 					nextChar = runes[j]
 				} else {
 					nextChar = rune(glyphs[j].Index)
 				}
-				fmt.Printf("  警告: 与字符 '%c' 发生重叠!\n", nextChar)
-				hasCollision = true
+				collides, status := pangoCairoFont.CheckGlyphCollision(glyph, glyphs[j], char, nextChar)
+				if status == cairo.StatusSuccess && collides {
+					fmt.Printf("  ⚠ 警告: 与字符 '%c' 发生重叠!\n", nextChar)
+					hasCollision = true
+					collisionCount++
+				}
 			}
+
+			if !hasCollision {
+				fmt.Printf("  ✓ 无重叠冲突\n")
+			}
+			fmt.Println()
 		}
 
-		if !hasCollision {
-			fmt.Printf("  无重叠冲突\n")
-		}
-		fmt.Println()
-	}
-}
-
-func printGenericGlyphInfo(context cairo.Context, sf cairo.ScaledFont, text string) {
-	// Get current point BEFORE showing text
-	x, y := context.GetCurrentPoint()
-
-	// Show text and get glyphs for analysis
-	context.ShowText(text)
-
-	// Get glyphs for the text
-	glyphs, _, _, status := sf.TextToGlyphs(x, y, text)
-	if status != cairo.StatusSuccess {
-		log.Fatal("Failed to get glyphs:", status)
-	}
-
-	// 打印每个字母的详细位置信息
-	fmt.Println("=== 每个字母的详细位置信息 ===")
-	runes := []rune(text)
-	for i, glyph := range glyphs {
-		var char rune
-		if i < len(runes) {
-			char = runes[i]
+		// Summary
+		fmt.Println("=== 碰撞检测总结 ===")
+		if collisionCount == 0 {
+			fmt.Printf("✓ 所有字符正常排列，无重叠\n")
 		} else {
-			char = rune(glyph.Index)
-		}
-
-		// 使用 TextExtents 获取文本范围信息
-		extents := sf.TextExtents(string(char))
-
-		// 计算四个角的坐标（基于字形位置和文本范围）
-		topLeftX := glyph.X + extents.XBearing
-		topLeftY := glyph.Y + extents.YBearing
-		topRightX := glyph.X + extents.XBearing + extents.Width
-		topRightY := glyph.Y + extents.YBearing
-		bottomLeftX := glyph.X + extents.XBearing
-		bottomLeftY := glyph.Y + extents.YBearing + extents.Height
-		bottomRightX := glyph.X + extents.XBearing + extents.Width
-		bottomRightY := glyph.Y + extents.YBearing + extents.Height
-
-		fmt.Printf("字符 '%c':\n", char)
-		fmt.Printf("  位置: (%.2f, %.2f)\n", glyph.X, glyph.Y)
-		fmt.Printf("  左上角: (%.2f, %.2f)\n", topLeftX, topLeftY)
-		fmt.Printf("  右上角: (%.2f, %.2f)\n", topRightX, topRightY)
-		fmt.Printf("  左下角: (%.2f, %.2f)\n", bottomLeftX, bottomLeftY)
-		fmt.Printf("  右下角: (%.2f, %.2f)\n", bottomRightX, bottomRightY)
-
-		// 检查与其他字符的冲突（简化版）
-		hasCollision := false
-		for j := i + 1; j < len(glyphs); j++ {
-			// 简单的边界框重叠检测
-			otherGlyph := glyphs[j]
-			var otherChar rune
-			if j < len(runes) {
-				otherChar = runes[j]
-			} else {
-				otherChar = rune(otherGlyph.Index)
-			}
-
-			// 获取另一个字符的范围信息
-			otherExtents := sf.TextExtents(string(otherChar))
-
-			// 计算当前字符的边界框
-			currentLeft := glyph.X + extents.XBearing
-			currentRight := glyph.X + extents.XBearing + extents.Width
-			currentTop := glyph.Y + extents.YBearing
-			currentBottom := glyph.Y + extents.YBearing + extents.Height
-
-			// 计算另一个字符的边界框
-			otherLeft := otherGlyph.X + otherExtents.XBearing
-			otherRight := otherGlyph.X + otherExtents.XBearing + otherExtents.Width
-			otherTop := otherGlyph.Y + otherExtents.YBearing
-			otherBottom := otherGlyph.Y + otherExtents.YBearing + otherExtents.Height
-
-			// 检查边界框是否重叠（增加一个小的容差值）
-			tolerance := 1.0
-			if currentLeft < otherRight-tolerance && currentRight-tolerance > otherLeft &&
-				currentTop < otherBottom-tolerance && currentBottom-tolerance > otherTop {
-				fmt.Printf("  警告: 与字符 '%c' 发生重叠!\n", otherChar)
-				hasCollision = true
-			}
-		}
-
-		if !hasCollision {
-			fmt.Printf("  无重叠冲突\n")
+			fmt.Printf("⚠ 检测到 %d 处字符重叠\n", collisionCount)
 		}
 		fmt.Println()
 	}

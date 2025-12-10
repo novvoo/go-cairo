@@ -1,3 +1,6 @@
+//go:build ignore
+// +build ignore
+
 package main
 
 import (
@@ -7,20 +10,12 @@ import (
 	"github.com/novvoo/go-cairo/pkg/cairo"
 )
 
-// SetFont 是一个辅助函数，用于设置字体系列和大小
-func SetFont(ctx cairo.Context, face string, size float64) {
-	ctx.SelectFontFace(face, cairo.FontSlantNormal, cairo.FontWeightNormal)
-	ctx.SetFontSize(size)
-	// 强制初始化 scaled font
-	_ = ctx.GetScaledFont()
-}
-
 func main() {
 	fmt.Println("🚀 Starting comprehensive Cairo demo...")
 
 	// Create a new image surface
-	fmt.Println("📝 Creating image surface (400x400 pixels)...")
-	surface := cairo.NewImageSurface(cairo.FormatARGB32, 400, 400)
+	fmt.Println("📝 Creating image surface (800x600 pixels)...")
+	surface := cairo.NewImageSurface(cairo.FormatARGB32, 800, 600)
 	defer surface.Destroy()
 	fmt.Printf("   Surface created with status: %v\n", surface.Status())
 
@@ -44,103 +39,136 @@ func main() {
 	ctx.Fill()
 
 	ctx.SetSourceRGB(0, 1, 0) // Green
-	fmt.Println("   Drawing green rectangle at (320, 50)")
-	ctx.Rectangle(320, 50, 30, 30) // Top-right quadrant
+	fmt.Println("   Drawing green rectangle at (720, 50)")
+	ctx.Rectangle(720, 50, 30, 30) // Top-right quadrant
 	ctx.Fill()
 
 	ctx.SetSourceRGB(0, 0, 1) // Blue
-	fmt.Println("   Drawing blue rectangle at (50, 320)")
-	ctx.Rectangle(50, 320, 30, 30) // Bottom-left quadrant
+	fmt.Println("   Drawing blue rectangle at (50, 520)")
+	ctx.Rectangle(50, 520, 30, 30) // Bottom-left quadrant
 	ctx.Fill()
 
 	ctx.SetSourceRGB(1, 1, 0) // Yellow
-	fmt.Println("   Drawing yellow rectangle at (320, 320)")
-	ctx.Rectangle(320, 320, 30, 30) // Bottom-right quadrant
+	fmt.Println("   Drawing yellow rectangle at (720, 520)")
+	ctx.Rectangle(720, 520, 30, 30) // Bottom-right quadrant
 	ctx.Fill()
 
 	// Test 2: Lines to show coordinate system orientation
 	fmt.Println("📏 Drawing coordinate system diagonals...")
-	ctx.SetSourceRGB(0, 0, 0) // Black
-	ctx.SetLineWidth(2)
+	ctx.SetSourceRGB(0.8, 0.8, 0.8) // Light gray
+	ctx.SetLineWidth(1)
 
 	// Diagonal from top-left to bottom-right
-	fmt.Println("   Drawing diagonal from (0,0) to (400,400)")
+	fmt.Println("   Drawing diagonal from (0,0) to (800,600)")
 	ctx.MoveTo(0, 0)
-	ctx.LineTo(400, 400)
+	ctx.LineTo(800, 600)
 	ctx.Stroke()
 
 	// Diagonal from bottom-left to top-right
-	fmt.Println("   Drawing diagonal from (0,400) to (400,0)")
-	ctx.MoveTo(0, 400)
-	ctx.LineTo(400, 0)
+	fmt.Println("   Drawing diagonal from (0,600) to (800,0)")
+	ctx.MoveTo(0, 600)
+	ctx.LineTo(800, 0)
 	ctx.Stroke()
 
 	// Test 3: Arcs and circles
 	fmt.Println("⭕ Drawing circle at center...")
 	ctx.SetSourceRGB(1, 0, 1)           // Magenta
-	ctx.Arc(200, 200, 50, 0, 2*math.Pi) // Circle at center
+	ctx.Arc(400, 300, 50, 0, 2*math.Pi) // Circle at center
 	ctx.Stroke()
-	fmt.Println("   Circle drawn at (200, 200) with radius 50")
+	fmt.Println("   Circle drawn at (400, 300) with radius 50")
 
-	// Test 4: Text at different positions (优化文本显示)
+	// Test 4: Text rendering using PangoCairo
 	fmt.Println("🔤 Drawing text samples...")
-	// 使用 "Go Regular" 字体而不是 "sans-serif"
-	SetFont(ctx, "Go Regular", 18)
-
-	// 手动触发一次 ScaledFont 创建
-	_ = ctx.GetScaledFont()
-
 	ctx.SetSourceRGB(0, 0, 0) // Black
+
+	// Create PangoCairo layout
+	layout := ctx.PangoCairoCreateLayout().(*cairo.PangoCairoLayout)
+
+	// Create font description with size 20
+	fontDesc := cairo.NewPangoFontDescription()
+	fontDesc.SetFamily("Go Regular")
+	fontDesc.SetWeight(cairo.PangoWeightNormal)
+	fontDesc.SetSize(20)
+	layout.SetFontDescription(fontDesc)
 
 	// Text at top-left
 	fmt.Println("   Drawing 'Top Left' at (10, 30)")
+	layout.SetText("Top Left")
 	ctx.MoveTo(10, 30)
-	ctx.ShowText("Top Left")
+	ctx.PangoCairoShowText(layout)
 
-	// Text at top-right (手动计算位置)
-	fmt.Println("   Drawing 'Top Right' at manually calculated position")
+	// Text at top-right
+	fmt.Println("   Drawing 'Top Right' at right-aligned position")
 	text := "Top Right"
-	extents := ctx.TextExtents(text)
-	ctx.MoveTo(400-extents.XAdvance-10, 30)
-	ctx.ShowText(text)
+	layout.SetText(text)
+	extents := layout.GetPixelExtents()
+	ctx.MoveTo(800-extents.Width-10, 30)
+	ctx.PangoCairoShowText(layout)
 
-	// Text at bottom-left (手动计算垂直位置)
-	fmt.Println("   Drawing 'Bottom Left' at manually calculated position")
+	// Text at bottom-left
+	fmt.Println("   Drawing 'Bottom Left' at bottom position")
 	text = "Bottom Left"
-	extents = ctx.TextExtents(text)
-	ctx.MoveTo(10, 400-extents.Height-10)
-	ctx.ShowText(text)
+	layout.SetText(text)
+	extents = layout.GetPixelExtents()
+	ctx.MoveTo(10, 600-10)
+	ctx.PangoCairoShowText(layout)
 
-	// Text at bottom-right (手动计算位置)
-	fmt.Println("   Drawing 'Bottom Right' at manually calculated position")
+	// Text at bottom-right
+	fmt.Println("   Drawing 'Bottom Right' at bottom-right position")
 	text = "Bottom Right"
-	extents = ctx.TextExtents(text)
-	ctx.MoveTo(400-extents.XAdvance-10, 400-extents.Height-10)
-	ctx.ShowText(text)
+	layout.SetText(text)
+	extents = layout.GetPixelExtents()
+	ctx.MoveTo(800-extents.Width-10, 600-10)
+	ctx.PangoCairoShowText(layout)
 
-	// Text at center (增大字体以便更清楚显示)
-	SetFont(ctx, "Go Regular", 24)
-	fmt.Println("   Drawing 'Center' at manually calculated centered position")
+	// Text at center with larger font
+	fmt.Println("   Drawing 'Center' at centered position")
+	fontDesc.SetSize(32)
+	layout.SetFontDescription(fontDesc)
 	text = "Center"
-	extents = ctx.TextExtents(text)
-	x := (400 - extents.XAdvance) / 2
-	y := (400-extents.Height)/2 + extents.Height
+	layout.SetText(text)
+	extents = layout.GetPixelExtents()
+	fontExtents := layout.GetFontExtents()
+	x := (800 - extents.Width) / 2
+	y := (600-fontExtents.Height)/2 + fontExtents.Ascent
 	ctx.MoveTo(x, y)
-	ctx.ShowText(text)
+	ctx.PangoCairoShowText(layout)
 
 	// Test 5: Bezier curves
 	fmt.Println("➰ Drawing bezier curve...")
 	ctx.SetSourceRGB(0, 1, 1) // Cyan
 	ctx.SetLineWidth(3)
 	ctx.MoveTo(100, 100)
-	fmt.Println("   Drawing curve from (100,100) to (300,300) with control points")
-	ctx.CurveTo(150, 50, 250, 350, 300, 300)
+	fmt.Println("   Drawing curve from (100,100) to (700,500) with control points")
+	ctx.CurveTo(200, 50, 600, 550, 700, 500)
 	ctx.Stroke()
 
-	// Save to PNG with premultiplied alpha fix
+	// Test 6: Multiple lines of text
+	fmt.Println("📝 Drawing multiple lines of text...")
+	ctx.SetSourceRGB(0, 0, 0) // Black
+	fontDesc.SetSize(16)
+	layout.SetFontDescription(fontDesc)
+
+	lines := []string{
+		"This is a comprehensive test",
+		"of the Cairo graphics library",
+		"with proper text rendering",
+		"using PangoCairo integration",
+	}
+
+	startY := 150.0
+	lineHeight := 25.0
+	for i, line := range lines {
+		y := startY + float64(i)*lineHeight
+		layout.SetText(line)
+		ctx.MoveTo(50, y)
+		ctx.PangoCairoShowText(layout)
+		fmt.Printf("   Drawing line %d: '%s' at y=%.1f\n", i+1, line, y)
+	}
+
+	// Save to PNG
 	fmt.Println("💾 Saving image to PNG...")
 	if imgSurf, ok := surface.(cairo.ImageSurface); ok {
-		// 应用反预乘 alpha 修复 PNG 透明度问题
 		status := imgSurf.WriteToPNG("comprehensive_test.png")
 		if status != cairo.StatusSuccess {
 			panic(fmt.Sprintf("WriteToPNG failed: %v", status))

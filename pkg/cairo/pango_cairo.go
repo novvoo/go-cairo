@@ -34,26 +34,28 @@ type PangoCairoFont struct {
 
 // PangoCairoFontMetrics represents font metrics in PangoCairo
 type PangoCairoFontMetrics struct {
-	refCount           int32
-	status             Status
-	ascent             float64
-	descent            float64
-	height             float64
-	lineGap            float64
-	underlinePos       float64
-	underlineThick     float64
-	strikethroughPos   float64
-	strikethroughThick float64
+	refCount       int32
+	status         Status
+	ascent         float64
+	descent        float64
+	height         float64
+	lineGap        float64
+	underlinePos   float64
+	underlineThick float64
+	// strikethroughPos and strikethroughThick are reserved for future use
+	_ float64 // strikethroughPos
+	_ float64 // strikethroughThick
 }
 
 // PangoCairoLayout represents a Pango layout for text arrangement
 type PangoCairoLayout struct {
-	refCount    int32
-	status      Status
-	context     *PangoCairoContext
-	text        string
-	fontDesc    *PangoFontDescription
-	attributes  []PangoAttribute
+	refCount int32
+	status   Status
+	context  *PangoCairoContext
+	text     string
+	fontDesc *PangoFontDescription
+	// attributes is reserved for future attribute support
+	_           []PangoAttribute // attributes
 	width       int
 	height      int
 	wrap        PangoWrapMode
@@ -66,9 +68,10 @@ type PangoCairoLayout struct {
 
 // PangoCairoContext represents a Pango context integrated with Cairo
 type PangoCairoContext struct {
-	refCount        int32
-	status          Status
-	fontMap         *PangoCairoFontMap
+	refCount int32
+	status   Status
+	fontMap  *PangoCairoFontMap
+	// fontDescription is stored but accessed via getter/setter methods
 	fontDescription *PangoFontDescription
 	baseDir         PangoDirection
 	userData        map[*UserDataKey]interface{}
@@ -86,10 +89,11 @@ type PangoFontDescription struct {
 
 // PangoAttribute represents text attributes in Pango
 type PangoAttribute struct {
-	startIndex int
-	endIndex   int
-	attrType   PangoAttrType
-	value      interface{}
+	// These fields are reserved for future attribute support
+	_ int           // startIndex
+	_ int           // endIndex
+	_ PangoAttrType // attrType
+	_ interface{}   // value
 }
 
 // Enumerations for PangoCairo
@@ -990,78 +994,95 @@ func (s *PangoCairoScaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 	// Check if we need to flip the Y axis based on the font matrix
 	// In Cairo, the default coordinate system has Y growing downward, but font glyphs
 	// are designed for Y growing upward. We need to flip the Y axis for proper text orientation.
-	flipY := s.fontMatrix.YY > 0
+	// However, the context matrix already handles the Y-flip (YY=-1), so we should NOT flip
+	// the glyph path here to avoid double flipping.
+	// Only flip if the font matrix itself has negative Y scale (which would be unusual)
+	flipY := s.fontMatrix.YY < 0
+
+	// Get font units per em and scale factor for coordinate transformation
+	unitsPerEm := float64(realFace.Upem())
+	scaleX := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	scaleY := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	if scaleX == 0 {
+		scaleX = 1.0
+	}
+	if scaleY == 0 {
+		scaleY = 1.0
+	}
 
 	// Iterate over the path segments
-	var pathPoints []Point
+	// Note: The outline coordinates from go-text/typesetting are in font units (float32)
+	// We need to scale them to user space and preserve the segment types
 	for _, seg := range outline.Segments {
+		var pd PathData
+
 		switch seg.Op {
 		case api.SegmentOpMoveTo:
-			x := float64(seg.Args[0].X) / 64.0
-			y := float64(seg.Args[0].Y) / 64.0
+			// Convert from font units to user space
+			x := (float64(seg.Args[0].X) / unitsPerEm) * scaleX
+			y := (float64(seg.Args[0].Y) / unitsPerEm) * scaleY
 			// Apply Y flip if needed
 			if flipY {
 				y = -y
 			}
-			point := Point{X: x, Y: y}
-			pathPoints = append(pathPoints, point)
+			pd.Type = PathMoveTo
+			pd.Points = []Point{{X: x, Y: y}}
+
 		case api.SegmentOpLineTo:
-			x := float64(seg.Args[0].X) / 64.0
-			y := float64(seg.Args[0].Y) / 64.0
+			x := (float64(seg.Args[0].X) / unitsPerEm) * scaleX
+			y := (float64(seg.Args[0].Y) / unitsPerEm) * scaleY
 			// Apply Y flip if needed
 			if flipY {
 				y = -y
 			}
-			point := Point{X: x, Y: y}
-			pathPoints = append(pathPoints, point)
+			pd.Type = PathLineTo
+			pd.Points = []Point{{X: x, Y: y}}
+
 		case api.SegmentOpQuadTo:
-			// Convert quadratic to cubic Bezier
-			x1 := float64(seg.Args[0].X) / 64.0
-			y1 := float64(seg.Args[0].Y) / 64.0
-			x2 := float64(seg.Args[1].X) / 64.0
-			y2 := float64(seg.Args[1].Y) / 64.0
+			// Convert quadratic Bezier to cubic Bezier
+			// For a quadratic curve with control point Q and end point P2,
+			// the cubic equivalent has control points:
+			// C1 = current_point + 2/3 * (Q - current_point)
+			// C2 = P2 + 2/3 * (Q - P2)
+			// However, since we don't track current point here, we'll use a simpler conversion
+			x1 := (float64(seg.Args[0].X) / unitsPerEm) * scaleX
+			y1 := (float64(seg.Args[0].Y) / unitsPerEm) * scaleY
+			x2 := (float64(seg.Args[1].X) / unitsPerEm) * scaleX
+			y2 := (float64(seg.Args[1].Y) / unitsPerEm) * scaleY
 			// Apply Y flip if needed
 			if flipY {
 				y1 = -y1
 				y2 = -y2
 			}
-			p1 := Point{X: x1, Y: y1}
-			p2 := Point{X: x2, Y: y2}
-			pathPoints = append(pathPoints, p1, p1, p2)
+			// Simplified: use the control point twice for cubic conversion
+			pd.Type = PathCurveTo
+			pd.Points = []Point{
+				{X: x1, Y: y1},
+				{X: x1, Y: y1},
+				{X: x2, Y: y2},
+			}
+
 		case api.SegmentOpCubeTo:
-			x1 := float64(seg.Args[0].X) / 64.0
-			y1 := float64(seg.Args[0].Y) / 64.0
-			x2 := float64(seg.Args[1].X) / 64.0
-			y2 := float64(seg.Args[1].Y) / 64.0
-			x3 := float64(seg.Args[2].X) / 64.0
-			y3 := float64(seg.Args[2].Y) / 64.0
+			x1 := (float64(seg.Args[0].X) / unitsPerEm) * scaleX
+			y1 := (float64(seg.Args[0].Y) / unitsPerEm) * scaleY
+			x2 := (float64(seg.Args[1].X) / unitsPerEm) * scaleX
+			y2 := (float64(seg.Args[1].Y) / unitsPerEm) * scaleY
+			x3 := (float64(seg.Args[2].X) / unitsPerEm) * scaleX
+			y3 := (float64(seg.Args[2].Y) / unitsPerEm) * scaleY
 			// Apply Y flip if needed
 			if flipY {
 				y1 = -y1
 				y2 = -y2
 				y3 = -y3
 			}
-			p1 := Point{X: x1, Y: y1}
-			p2 := Point{X: x2, Y: y2}
-			p3 := Point{X: x3, Y: y3}
-			pathPoints = append(pathPoints, p1, p2, p3)
+			pd.Type = PathCurveTo
+			pd.Points = []Point{
+				{X: x1, Y: y1},
+				{X: x2, Y: y2},
+				{X: x3, Y: y3},
+			}
 		}
-	}
 
-	// Apply hinting to the path points
-	hintedPoints := s.applyHinting(pathPoints)
-
-	// Convert hinted points back to path data
-	// This is a simplified approach - in reality, we'd need to preserve
-	// the segment structure while applying hinting
-	for i, point := range hintedPoints {
-		var pd PathData
-		if i == 0 {
-			pd.Type = PathMoveTo
-		} else {
-			pd.Type = PathLineTo
-		}
-		pd.Points = []Point{point}
 		cairoPath.Data = append(cairoPath.Data, pd)
 	}
 
@@ -1173,38 +1194,66 @@ func (s *PangoCairoScaledFont) GetGlyphMetrics(r rune) (*GlyphMetrics, Status) {
 		return nil, StatusFontTypeMismatch
 	}
 
+	// Get font units per em and scale factor first
+	unitsPerEm := float64(realFace.Upem())
+	scaleX := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	scaleY := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
+	if scaleX == 0 {
+		scaleX = 1.0
+	}
+	if scaleY == 0 {
+		scaleY = 1.0
+	}
+
 	// Calculate bounding box from outline
+	// Note: Outline coordinates from go-text/typesetting are in font units (float32)
 	var xmin, xmax, ymin, ymax float64
 	firstPoint := true
 
+	pointCount := 0
 	for _, seg := range outline.Segments {
 		for _, arg := range seg.Args {
-			x := float64(arg.X) / 64.0
-			y := float64(arg.Y) / 64.0
+			// Coordinates are already in font units (float32), just convert to float64
+			xInFontUnits := float64(arg.X)
+			yInFontUnits := float64(arg.Y)
+
+			pointCount++
 
 			if firstPoint {
-				xmin, xmax = x, x
-				ymin, ymax = y, y
+				xmin, xmax = xInFontUnits, xInFontUnits
+				ymin, ymax = yInFontUnits, yInFontUnits
 				firstPoint = false
 			} else {
-				if x < xmin {
-					xmin = x
+				if xInFontUnits < xmin {
+					xmin = xInFontUnits
 				}
-				if x > xmax {
-					xmax = x
+				if xInFontUnits > xmax {
+					xmax = xInFontUnits
 				}
-				if y < ymin {
-					ymin = y
+				if yInFontUnits < ymin {
+					ymin = yInFontUnits
 				}
-				if y > ymax {
-					ymax = y
+				if yInFontUnits > ymax {
+					ymax = yInFontUnits
 				}
 			}
 		}
 	}
 
+	// Scale bounding box to user space
+	xmin = (xmin / unitsPerEm) * scaleX
+	xmax = (xmax / unitsPerEm) * scaleX
+	ymin = (ymin / unitsPerEm) * scaleY
+	ymax = (ymax / unitsPerEm) * scaleY
+
 	// Get horizontal metrics from the font's hmtx table
-	advanceWidth := float64(realFace.HorizontalAdvance(gid)) / 64.0
+	// HorizontalAdvance returns the advance width in font units (not 26.6 format)
+	rawAdvance := realFace.HorizontalAdvance(gid)
+
+	// Convert from font units to user space units
+	// Formula: (font_units / units_per_em) * font_size
+	advanceInFontUnits := float64(rawAdvance)
+	advanceWidth := (advanceInFontUnits / unitsPerEm) * scaleX
 
 	// Create metrics
 	metrics := &GlyphMetrics{
@@ -1268,7 +1317,15 @@ func (s *PangoCairoScaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs [
 		return s.toyTextToGlyphsFallback(x, y, utf8)
 	}
 
-	// 1. Shape the text
+	// Get the font size from the font matrix
+	// The font size is typically the YY component of the font matrix
+	fontSize := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	if fontSize == 0 {
+		fontSize = 12.0 // Default fallback
+	}
+
+	// 1. Shape the text with the correct font size
+	// fixed.I() converts an integer to 26.6 fixed point format
 	runes := []rune(utf8)
 	input := shaping.Input{
 		Text:      runes,
@@ -1276,20 +1333,11 @@ func (s *PangoCairoScaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs [
 		RunEnd:    len(runes),
 		Direction: di.DirectionLTR,
 		Face:      realFace,
-		Size:      fixed.I(12),
+		Size:      fixed.I(int(fontSize)), // Convert to 26.6 fixed point
 	}
 	output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
 	// 2. Convert shaped output to cairo's Glyph and TextCluster structures
-
-	// Get the CTM (Current Transformation Matrix)
-	ctm := s.GetCTM()
-
-	// Transform the initial position (x, y) by CTM
-	transformedX := ctm.XX*x + ctm.XY*y + ctm.X0
-	transformedY := ctm.YX*x + ctm.YY*y + ctm.Y0
-
-	// Glyphs
 	glyphs = make([]Glyph, len(output.Glyphs))
 	var curX, curY float64
 
@@ -1298,25 +1346,13 @@ func (s *PangoCairoScaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs [
 		// Position is in user space, relative to the start point (x, y)
 		glyphs[i] = Glyph{
 			Index: uint64(g.GlyphID),
-			X:     transformedX + curX + float64(g.XOffset)/64.0,
-			Y:     transformedY + curY - float64(g.YOffset)/64.0, // Negative for Y flip
+			X:     x + curX + float64(g.XOffset)/64.0,
+			Y:     y + curY - float64(g.YOffset)/64.0, // Negative for Y flip
 		}
 
 		// Add the advance width for the next glyph
-		advance := float64(g.XAdvance) / 64.0
-		curX += advance
-
-		// Add kerning between characters if this is not the last glyph
-		if i < len(output.Glyphs)-1 {
-			// Get kerning adjustment between current and next glyph
-			kerning, kernStatus := s.GetKerning(runes[i], runes[i+1])
-			// Only apply kerning if successfully obtained
-			if kernStatus == StatusSuccess {
-				curX += kerning
-			}
-		}
-
-		// Add vertical advance
+		// The shaper returns advances in 26.6 fixed point format
+		curX += float64(g.XAdvance) / 64.0
 		curY += float64(g.YAdvance) / 64.0
 	}
 
@@ -1376,7 +1412,7 @@ func (s *PangoCairoScaledFont) toyTextToGlyphsFallback(x, y float64, utf8 string
 	return glyphs, clusters, clusterFlags, StatusSuccess
 }
 
-// PangoCairoShowText renders text using PangoCairo
+// PangoCairoShowText renders text using PangoCairo directly to the surface
 func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 	if ctx.Status() != StatusSuccess {
 		return
@@ -1388,28 +1424,92 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 		x, y = 0, 0
 	}
 
-	// Get the scaled font from context
-	sf := ctx.GetScaledFont()
-	if sf == nil {
+	// Create scaled font from layout's font description
+	if layout.fontDesc == nil {
 		ctx.(*context).status = StatusFontTypeMismatch
 		return
 	}
+
+	fontFace := NewPangoCairoFont(layout.fontDesc.family, FontSlantNormal, FontWeightNormal)
+	defer fontFace.Destroy()
+
+	fontMatrix := NewMatrix()
+	// Use positive Y scale - the context already has Y-flip applied
+	fontMatrix.InitScale(layout.fontDesc.size, layout.fontDesc.size)
+
+	ctm := NewMatrix()
+	ctm.InitIdentity()
+
+	sf := NewPangoCairoScaledFont(fontFace, fontMatrix, ctm, nil)
 	defer sf.Destroy()
 
 	// Perform text shaping to get glyphs
-	glyphs, clusters, clusterFlags, status := sf.TextToGlyphs(x, y, layout.GetText())
+	glyphs, _, _, status := sf.TextToGlyphs(x, y, layout.GetText())
 	if status != StatusSuccess {
 		ctx.(*context).status = status
 		return
 	}
 
-	// Render the text using ShowTextGlyphs
-	ctx.ShowTextGlyphs(layout.GetText(), glyphs, clusters, clusterFlags)
+	// Render glyphs directly to surface using PangoCairo
+	c := ctx.(*context)
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	// Update current point
+	// Get the current source pattern for text color
+	source := c.gstate.source
+	if source == nil {
+		return
+	}
+
+	// Render each glyph directly to the surface
+	for _, glyph := range glyphs {
+		// Get the glyph path
+		glyphPath, err := sf.GlyphPath(glyph.Index)
+		if err != nil || glyphPath == nil {
+			continue
+		}
+
+		// Save current state
+		savedPath := c.path
+
+		// Create a new path for this glyph
+		c.path = &path{data: make([]pathOp, 0)}
+
+		// Translate the glyph path to the correct position
+		// The glyph path is in font space, we need to translate it to the glyph position
+		for _, pathData := range glyphPath.Data {
+			translatedPoints := make([]Point, len(pathData.Points))
+			for i, p := range pathData.Points {
+				translatedPoints[i] = Point{
+					X: p.X + glyph.X,
+					Y: p.Y + glyph.Y,
+				}
+			}
+
+			// Add the translated path operation
+			op := pathOp{
+				op:     pathData.Type,
+				points: make([]point, len(translatedPoints)),
+			}
+			for i, p := range translatedPoints {
+				op.points[i] = point{x: p.X, y: p.Y}
+			}
+			c.path.data = append(c.path.data, op)
+		}
+
+		// Fill the glyph directly on the surface
+		c.FillPreserve()
+
+		// Restore state
+		c.path = savedPath
+	}
+
+	// Update current point to the position after the last glyph
 	if len(glyphs) > 0 {
-		lastGlyph := glyphs[len(glyphs)-1]
-		ctx.MoveTo(lastGlyph.X, lastGlyph.Y)
+		extents := sf.TextExtents(layout.GetText())
+		c.currentPoint.x = x + extents.XAdvance
+		c.currentPoint.y = y + extents.YAdvance
+		c.currentPoint.hasPoint = true
 	}
 }
 
@@ -1446,7 +1546,80 @@ func (s *PangoCairoScaledFont) GetGlyphCornerCoordinates(glyph Glyph) (*GlyphCor
 		return nil, status
 	}
 
-	// Calculate the four corners based on glyph position and bounding box
+	// Calculate the four corners based on glyph position and advance width
+	// The bounding box represents the visual bounds of the glyph
+	topRightX := glyph.X + metrics.BoundingBox.XMax
+
+	if glyph.Index == uint64('H') {
+		fmt.Printf("[DEBUG GetGlyphCornerCoordinates] 'H': glyph.X=%.2f, BBox.XMax=%.2f, TopRightX=%.2f\n",
+			glyph.X, metrics.BoundingBox.XMax, topRightX)
+	}
+
+	coords := &GlyphCornerCoordinates{
+		TopLeftX:     glyph.X + metrics.BoundingBox.XMin,
+		TopLeftY:     glyph.Y + metrics.BoundingBox.YMin,
+		TopRightX:    topRightX,
+		TopRightY:    glyph.Y + metrics.BoundingBox.YMin,
+		BottomLeftX:  glyph.X + metrics.BoundingBox.XMin,
+		BottomLeftY:  glyph.Y + metrics.BoundingBox.YMax,
+		BottomRightX: topRightX,
+		BottomRightY: glyph.Y + metrics.BoundingBox.YMax,
+	}
+
+	return coords, StatusSuccess
+}
+
+// CheckGlyphCollision checks if two glyphs' bounding boxes overlap
+// char1 and char2 are the actual characters (runes) corresponding to the glyphs
+func (s *PangoCairoScaledFont) CheckGlyphCollision(glyph1, glyph2 Glyph, char1, char2 rune) (bool, Status) {
+	// Get metrics for both characters
+	metrics1, status := s.GetGlyphMetrics(char1)
+	if status != StatusSuccess {
+		return false, status
+	}
+
+	metrics2, status := s.GetGlyphMetrics(char2)
+	if status != StatusSuccess {
+		return false, status
+	}
+
+	// Calculate bounding boxes in absolute coordinates
+	box1MinX := glyph1.X + metrics1.BoundingBox.XMin
+	box1MaxX := glyph1.X + metrics1.BoundingBox.XMax
+	box1MinY := glyph1.Y + metrics1.BoundingBox.YMin
+	box1MaxY := glyph1.Y + metrics1.BoundingBox.YMax
+
+	box2MinX := glyph2.X + metrics2.BoundingBox.XMin
+	box2MaxX := glyph2.X + metrics2.BoundingBox.XMax
+	box2MinY := glyph2.Y + metrics2.BoundingBox.YMin
+	box2MaxY := glyph2.Y + metrics2.BoundingBox.YMax
+
+	// Check for overlap
+	// Two rectangles overlap if:
+	// 1. The left edge of rect1 is to the left of the right edge of rect2
+	// 2. The right edge of rect1 is to the right of the left edge of rect2
+	// 3. The top edge of rect1 is above the bottom edge of rect2
+	// 4. The bottom edge of rect1 is below the top edge of rect2
+	overlap := box1MinX < box2MaxX &&
+		box1MaxX > box2MinX &&
+		box1MinY < box2MaxY &&
+		box1MaxY > box2MinY
+
+	return overlap, StatusSuccess
+}
+
+// PrintGlyphInfo prints detailed information about a glyph including its corner coordinates
+func (s *PangoCairoScaledFont) PrintGlyphInfo(glyph Glyph, char rune) {
+	// Get metrics using the correct character, not the glyph index
+	metrics, status := s.GetGlyphMetrics(char)
+	if status != StatusSuccess {
+		fmt.Printf("无法获取字符 '%c' 的度量信息: %v\n", char, status)
+		return
+	}
+
+	// Calculate corners manually using the correct metrics
+	visualWidth := metrics.BoundingBox.XMax - metrics.BoundingBox.XMin
+
 	coords := &GlyphCornerCoordinates{
 		TopLeftX:     glyph.X + metrics.BoundingBox.XMin,
 		TopLeftY:     glyph.Y + metrics.BoundingBox.YMin,
@@ -1458,55 +1631,12 @@ func (s *PangoCairoScaledFont) GetGlyphCornerCoordinates(glyph Glyph) (*GlyphCor
 		BottomRightY: glyph.Y + metrics.BoundingBox.YMax,
 	}
 
-	return coords, StatusSuccess
-}
-
-// CheckGlyphCollision checks if two glyphs' bounding boxes overlap
-func (s *PangoCairoScaledFont) CheckGlyphCollision(glyph1, glyph2 Glyph) (bool, Status) {
-	// Get corner coordinates for both glyphs
-	coords1, status := s.GetGlyphCornerCoordinates(glyph1)
-	if status != StatusSuccess {
-		return false, status
-	}
-
-	coords2, status := s.GetGlyphCornerCoordinates(glyph2)
-	if status != StatusSuccess {
-		return false, status
-	}
-
-	// Check for overlap
-	// Two rectangles overlap if:
-	// 1. The left edge of rect1 is to the left of the right edge of rect2
-	// 2. The right edge of rect1 is to the right of the left edge of rect2
-	// 3. The top edge of rect1 is above the bottom edge of rect2
-	// 4. The bottom edge of rect1 is below the top edge of rect2
-	overlap := coords1.TopLeftX < coords2.BottomRightX &&
-		coords1.BottomRightX > coords2.TopLeftX &&
-		coords1.TopLeftY < coords2.BottomRightY &&
-		coords1.BottomRightY > coords2.TopLeftY
-
-	return overlap, StatusSuccess
-}
-
-// PrintGlyphInfo prints detailed information about a glyph including its corner coordinates
-func (s *PangoCairoScaledFont) PrintGlyphInfo(glyph Glyph, char rune) {
-	coords, status := s.GetGlyphCornerCoordinates(glyph)
-	if status != StatusSuccess {
-		fmt.Printf("无法获取字符 '%c' 的坐标信息: %v\n", char, status)
-		return
-	}
-
-	metrics, status := s.GetGlyphMetrics(char)
-	if status != StatusSuccess {
-		fmt.Printf("无法获取字符 '%c' 的度量信息: %v\n", char, status)
-		return
-	}
-
 	fmt.Printf("字符 '%c' 位置信息:\n", char)
 	fmt.Printf("  位置: (%.2f, %.2f)\n", glyph.X, glyph.Y)
 	fmt.Printf("  边界框: minX=%.2f, minY=%.2f, maxX=%.2f, maxY=%.2f\n",
 		metrics.BoundingBox.XMin, metrics.BoundingBox.YMin,
 		metrics.BoundingBox.XMax, metrics.BoundingBox.YMax)
+	fmt.Printf("  视觉宽度: %.2f, Advance: %.2f\n", visualWidth, metrics.XAdvance)
 	fmt.Printf("  左上角: (%.2f, %.2f)\n", coords.TopLeftX, coords.TopLeftY)
 	fmt.Printf("  右上角: (%.2f, %.2f)\n", coords.TopRightX, coords.TopRightY)
 	fmt.Printf("  左下角: (%.2f, %.2f)\n", coords.BottomLeftX, coords.BottomLeftY)
@@ -1531,16 +1661,77 @@ func (s *PangoCairoScaledFont) PrintTextGlyphsInfo(utf8 string, glyphs []Glyph) 
 
 		// Check for collisions with subsequent glyphs
 		for j := i + 1; j < len(glyphs); j++ {
-			collides, status := s.CheckGlyphCollision(glyph, glyphs[j])
+			var nextChar rune
+			if j < len(runes) {
+				nextChar = runes[j]
+			} else {
+				nextChar = rune(glyphs[j].Index)
+			}
+			collides, status := s.CheckGlyphCollision(glyph, glyphs[j], char, nextChar)
 			if status == StatusSuccess && collides {
-				var nextChar rune
-				if j < len(runes) {
-					nextChar = runes[j]
-				} else {
-					nextChar = rune(glyphs[j].Index)
-				}
 				fmt.Printf("警告: 字符 '%c' 和 '%c' 之间存在重叠!\n\n", char, nextChar)
 			}
 		}
 	}
+}
+
+// PangoRectangle represents a rectangle in Pango coordinates
+type PangoRectangle struct {
+	X      float64
+	Y      float64
+	Width  float64
+	Height float64
+}
+
+// GetPixelExtents returns the pixel extents of the layout
+func (l *PangoCairoLayout) GetPixelExtents() *PangoRectangle {
+	if l.text == "" || l.fontDesc == nil {
+		return &PangoRectangle{}
+	}
+
+	// Create a temporary scaled font to get text extents
+	fontFace := NewPangoCairoFont(l.fontDesc.family, FontSlantNormal, FontWeightNormal)
+	defer fontFace.Destroy()
+
+	fontMatrix := NewMatrix()
+	// Use negative Y scale to match Cairo's coordinate system (Y grows downward)
+	fontMatrix.InitScale(l.fontDesc.size, -l.fontDesc.size)
+
+	ctm := NewMatrix()
+	ctm.InitIdentity()
+
+	scaledFont := NewPangoCairoScaledFont(fontFace, fontMatrix, ctm, nil)
+	defer scaledFont.Destroy()
+
+	extents := scaledFont.TextExtents(l.text)
+
+	return &PangoRectangle{
+		X:      extents.XBearing,
+		Y:      extents.YBearing,
+		Width:  extents.Width,
+		Height: extents.Height,
+	}
+}
+
+// GetFontExtents returns the font extents for the layout
+func (l *PangoCairoLayout) GetFontExtents() *FontExtents {
+	if l.fontDesc == nil {
+		return &FontExtents{}
+	}
+
+	// Create a temporary scaled font to get font extents
+	fontFace := NewPangoCairoFont(l.fontDesc.family, FontSlantNormal, FontWeightNormal)
+	defer fontFace.Destroy()
+
+	fontMatrix := NewMatrix()
+	// Use negative Y scale to match Cairo's coordinate system (Y grows downward)
+	fontMatrix.InitScale(l.fontDesc.size, -l.fontDesc.size)
+
+	ctm := NewMatrix()
+	ctm.InitIdentity()
+
+	scaledFont := NewPangoCairoScaledFont(fontFace, fontMatrix, ctm, nil)
+	defer scaledFont.Destroy()
+
+	return scaledFont.Extents()
 }

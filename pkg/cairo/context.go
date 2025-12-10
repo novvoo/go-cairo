@@ -725,21 +725,26 @@ func (c *context) applyPathToDraw2D() {
 	}
 
 	c.gc.BeginPath()
+	opCount := 0
 	for _, op := range c.path.data {
 		switch op.op {
 		case PathMoveTo:
 			p := op.points[0]
 			c.gc.MoveTo(p.x, p.y)
+			opCount++
 		case PathLineTo:
 			p := op.points[0]
 			c.gc.LineTo(p.x, p.y)
+			opCount++
 		case PathCurveTo:
 			p1 := op.points[0]
 			p2 := op.points[1]
 			p3 := op.points[2]
 			c.gc.CubicCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
+			opCount++
 		case PathClosePath:
 			c.gc.Close()
+			opCount++
 		}
 	}
 }
@@ -1340,152 +1345,23 @@ func (c *context) AppendPath(path *Path) {
 	}
 }
 
-// ShowText is a simplified version of ShowTextGlyphs that performs shaping internally.
-func (c *context) ShowText(utf8 string) {
-	if c.status != StatusSuccess {
-		return
-	}
+// ShowText - Toy Text API removed, use PangoCairo instead
+// Use PangoCairoCreateLayout, SetText, and PangoCairoShowText for text rendering
 
-	// Ensure we have a scaled font
-	sf := c.GetScaledFont()
-	if sf == nil {
-		c.status = StatusFontTypeMismatch
-		return
-	}
-	defer sf.Destroy()
-
-	// Get current point or use (0, 0)
-	x, y := c.GetCurrentPoint()
-	if !c.currentPoint.hasPoint {
-		x, y = 0, 0
-	}
-
-	// Perform text shaping to get glyphs
-	glyphs, clusters, clusterFlags, status := sf.TextToGlyphs(x, y, utf8)
-	if status != StatusSuccess {
-		c.status = status
-		return
-	}
-
-	// Draw the glyphs
-	c.ShowTextGlyphs(utf8, glyphs, clusters, clusterFlags)
-}
-
-// ShowTextGlyphs draws the given glyphs by converting them to paths and filling.
+// ShowTextGlyphs is deprecated - use PangoCairoShowText instead
+// This method renders text directly to the surface using PangoCairo without
+// converting glyphs to paths. All text rendering should use PangoCairoShowText.
+// Deprecated: Use PangoCairoShowText for all text rendering
 func (c *context) ShowTextGlyphs(utf8 string, glyphs []Glyph, clusters []TextCluster, flags TextClusterFlags) {
-	if c.status != StatusSuccess {
-		return
-	}
-
-	// Ensure we have a scaled font
-	sf := c.GetScaledFont()
-	if sf == nil {
-		c.status = StatusFontTypeMismatch
-		return
-	}
-	defer sf.Destroy()
-
-	// Method 1: Use glyph paths (proper Cairo way)
-	// This converts each glyph to its outline path and fills it
-	for _, glyph := range glyphs {
-		// Get the glyph path
-		sfImpl, ok := sf.(*scaledFont)
-		if !ok {
-			continue
-		}
-
-		glyphPath, err := sfImpl.GlyphPath(glyph.Index)
-		if err != nil || glyphPath == nil {
-			continue
-		}
-
-		// Save current state
-		c.Save()
-
-		// Translate to glyph position
-		c.Translate(glyph.X, glyph.Y)
-
-		// Apply proper Y axis scaling to prevent text flipping in downward Y coordinate systems
-		// In Cairo, the default coordinate system has Y growing downward, but font glyphs
-		// are designed for Y growing upward. We need to flip the Y axis for proper text orientation.
-		// Check if we need to flip the Y axis based on the font matrix
-		fontMatrix := c.GetFontMatrix()
-		if fontMatrix.YY > 0 {
-			// In a coordinate system where Y grows downward and font matrix has positive YY,
-			// we need to flip the Y axis for proper text orientation
-			c.Scale(1, -1)
-		}
-
-		// Append the glyph path to current path
-		c.AppendPath(glyphPath)
-
-		// Fill the glyph
-		c.Fill()
-
-		// Restore state
-		c.Restore()
-	}
-
-	// Update current point to the position after the last glyph
-	if len(glyphs) > 0 {
-		lastGlyph := glyphs[len(glyphs)-1]
-
-		// Get text extents to calculate the final position
-		extents := c.TextExtents(utf8)
-
-		// Correctly update the current point after drawing text
-		c.currentPoint.x = lastGlyph.X + extents.XAdvance
-		c.currentPoint.y = lastGlyph.Y
-		c.currentPoint.hasPoint = true
-	}
+	// This method is deprecated and should not be called directly
+	c.status = StatusInvalidString
 }
 
-// GlyphPath adds the given glyphs to the current path.
+// GlyphPath is deprecated - use PangoCairoShowText instead
+// Deprecated: Use PangoCairoShowText for all text rendering
 func (c *context) GlyphPath(glyphs []Glyph) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.status != StatusSuccess {
-		return
-	}
-
-	// 1. Get the scaled font
-	sf, ok := c.gstate.scaledFont.(*scaledFont)
-	if !ok || sf == nil {
-		c.status = StatusFontTypeMismatch
-		return
-	}
-
-	// 2. Iterate over glyphs and convert to path
-	for _, g := range glyphs {
-		// Get the glyph path from the scaled font
-		glyphPath, err := sf.GlyphPath(g.Index)
-		if err != nil || glyphPath == nil {
-			// Skip glyphs without outlines
-			continue
-		}
-
-		// Save current transformation
-		savedMatrix := c.gstate.matrix
-
-		// Translate to glyph position
-		c.Translate(g.X, g.Y)
-
-		// Apply proper Y axis scaling to prevent text flipping in downward Y coordinate systems
-		// In Cairo, the default coordinate system has Y growing downward, but font glyphs
-		// are designed for Y growing upward. We need to flip the Y axis for proper text orientation.
-		// Check if we need to flip the Y axis based on the font matrix
-		if c.gstate.fontMatrix.YY > 0 {
-			// In a coordinate system where Y grows downward and font matrix has positive YY,
-			// we need to flip the Y axis for proper text orientation
-			c.Scale(1, -1)
-		}
-
-		// Append the glyph path to current path
-		c.AppendPath(glyphPath)
-
-		// Restore transformation
-		c.gstate.matrix = savedMatrix
-	}
+	// This method is deprecated and should not be called directly
+	c.status = StatusInvalidString
 }
 
 // Helper functions for matrix operations
@@ -1548,22 +1424,7 @@ func MatrixInvert(matrix *Matrix) Status {
 	return StatusSuccess
 }
 
-// Font operations
-func (c *context) SelectFontFace(family string, slant FontSlant, weight FontWeight) {
-	if c.status != StatusSuccess {
-		return
-	}
-	fontFace := NewToyFontFace(family, slant, weight)
-	c.SetFontFace(fontFace)
-	fontFace.Destroy()
-}
-
-func (c *context) SetFontSize(size float64) {
-	if c.status != StatusSuccess {
-		return
-	}
-	c.gstate.fontMatrix.InitScale(size, size)
-}
+// Font operations - Toy Text API removed, use PangoCairo instead
 
 func (c *context) SetFontMatrix(matrix *Matrix) {
 	if c.status != StatusSuccess {
@@ -1672,47 +1533,18 @@ func (c *context) GlyphExtents(glyphs []Glyph) *TextExtents {
 	return sf.GlyphExtents(glyphs)
 }
 
+// ShowGlyphs is deprecated - use PangoCairoShowText instead
+// Deprecated: Use PangoCairoShowText for all text rendering
 func (c *context) ShowGlyphs(glyphs []Glyph) {
-	c.ShowTextGlyphs("", glyphs, nil, 0)
+	// This method is deprecated and should not be called directly
+	c.status = StatusInvalidString
 }
 
-// TextPath adds the text to the current path as glyph outlines.
+// TextPath is deprecated - use PangoCairoShowText instead
+// Deprecated: Use PangoCairoShowText for all text rendering
 func (c *context) TextPath(utf8 string) {
-	if c.status != StatusSuccess {
-		return
-	}
-
-	// Ensure we have a scaled font
-	sf := c.GetScaledFont()
-	if sf == nil {
-		c.status = StatusFontTypeMismatch
-		return
-	}
-	defer sf.Destroy()
-
-	// Get current point or use (0, 0)
-	x, y := c.GetCurrentPoint()
-	if !c.currentPoint.hasPoint {
-		x, y = 0, 0
-	}
-
-	// Perform text shaping to get glyphs
-	glyphs, _, _, status := sf.TextToGlyphs(x, y, utf8)
-	if status != StatusSuccess {
-		c.status = status
-		return
-	}
-
-	// Add glyphs to path
-	c.GlyphPath(glyphs)
-
-	// Update current point
-	if len(glyphs) > 0 {
-		extents := c.TextExtents(utf8)
-		c.currentPoint.x = x + extents.XAdvance
-		c.currentPoint.y = y + extents.YAdvance
-		c.currentPoint.hasPoint = true
-	}
+	// This method is deprecated and should not be called directly
+	c.status = StatusInvalidString
 }
 
 // PangoCairoCreateLayout creates a new Pango layout for this context

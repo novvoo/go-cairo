@@ -1,3 +1,6 @@
+//go:build ignore
+// +build ignore
+
 package main
 
 import (
@@ -37,33 +40,32 @@ func testSimpleText() {
 	// Set text color
 	context.SetSourceRGB(0, 0, 0) // Black text
 
-	// Set font properties
-	context.SelectFontFace("sans", cairo.FontSlantNormal, cairo.FontWeightNormal)
-	context.SetFontSize(32)
+	// 使用PangoCairo创建布局
+	layout := context.PangoCairoCreateLayout().(*cairo.PangoCairoLayout)
+
+	// 设置字体描述
+	fontDesc := cairo.NewPangoFontDescription()
+	fontDesc.SetFamily("sans")
+	fontDesc.SetWeight(cairo.PangoWeightNormal)
+	fontDesc.SetSize(32.0)
+	layout.SetFontDescription(fontDesc)
+
+	// 设置文本
+	text := "Hello World"
+	layout.SetText(text)
 
 	// Move to position and show text
 	context.MoveTo(50, 100)
+	context.PangoCairoShowText(layout)
 
-	// Show text
-	text := "Hello World"
-	context.ShowText(text)
-
-	// Get the scaled font from context for our new functionality
-	sf := context.GetScaledFont()
-	if sf == nil {
-		log.Fatal("Failed to get scaled font")
-	}
-	defer sf.Destroy()
-
-	// Try to cast to PangoCairoScaledFont, but handle the case where it's not
+	// 获取文本范围信息
+	extents := layout.GetPixelExtents()
 	fmt.Println("字体类型检查:")
-	fmt.Printf("  字体类型: %v\n", sf.GetType())
+	fmt.Printf("  使用 PangoCairo 渲染\n")
 
-	// Always print information about text extents
-	extents := context.TextExtents(text)
+	// 打印文本范围信息
 	fmt.Printf("  文本范围: 宽度=%.2f, 高度=%.2f\n", extents.Width, extents.Height)
-	fmt.Printf("  边界信息: XBearing=%.2f, YBearing=%.2f\n", extents.XBearing, extents.YBearing)
-	fmt.Printf("  前进距离: X=%.2f, Y=%.2f\n", extents.XAdvance, extents.YAdvance)
+	fmt.Printf("  边界信息: X=%.2f, Y=%.2f\n", extents.X, extents.Y)
 	fmt.Println()
 
 	// Save to PNG
@@ -98,23 +100,37 @@ func testTextWithCollisions() {
 	// Set text color
 	context.SetSourceRGB(0, 0, 0) // Black text
 
-	// Set font properties for clearer collision demonstration
-	context.SelectFontFace("monospace", cairo.FontSlantNormal, cairo.FontWeightBold)
-	context.SetFontSize(48)
+	// 使用PangoCairo创建布局
+	layout := context.PangoCairoCreateLayout().(*cairo.PangoCairoLayout)
+
+	// 设置字体描述
+	fontDesc := cairo.NewPangoFontDescription()
+	fontDesc.SetFamily("monospace")
+	fontDesc.SetWeight(cairo.PangoWeightBold)
+	fontDesc.SetSize(48.0)
+	layout.SetFontDescription(fontDesc)
 
 	// Show normal text at top
+	layout.SetText("Test")
 	context.MoveTo(50, 100)
-	context.ShowText("Test")
+	context.PangoCairoShowText(layout)
 
 	// Show the same text with manual positioning to demonstrate potential overlap
+	layout.SetText("T")
 	context.MoveTo(50, 200)
-	context.ShowText("T")
+	context.PangoCairoShowText(layout)
+
+	layout.SetText("e")
 	context.MoveTo(70, 200) // Very close positioning to show potential overlap
-	context.ShowText("e")
+	context.PangoCairoShowText(layout)
+
+	layout.SetText("s")
 	context.MoveTo(90, 200)
-	context.ShowText("s")
+	context.PangoCairoShowText(layout)
+
+	layout.SetText("t")
 	context.MoveTo(110, 200)
-	context.ShowText("t")
+	context.PangoCairoShowText(layout)
 
 	// Save to PNG
 	if imageSurface, ok := surface.(cairo.ImageSurface); ok {

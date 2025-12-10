@@ -187,18 +187,17 @@ type Context interface {
 	CopyPathFlat() *Path
 	AppendPath(path *Path)
 
-	// Text operations
-	ShowText(utf8 string)
+	// Text operations (use PangoCairo for text rendering)
+	// Deprecated: Use PangoCairoShowText instead
 	ShowGlyphs(glyphs []Glyph)
+	// Deprecated: Use PangoCairoShowText instead
 	ShowTextGlyphs(utf8 string, glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags)
-	TextPath(utf8 string)
+	// Deprecated: Use PangoCairoShowText instead
 	GlyphPath(glyphs []Glyph)
 	TextExtents(utf8 string) *TextExtents
 	GlyphExtents(glyphs []Glyph) *TextExtents
 
 	// Font operations
-	SelectFontFace(family string, slant FontSlant, weight FontWeight)
-	SetFontSize(size float64)
 	SetFontMatrix(matrix *Matrix)
 	GetFontMatrix() *Matrix
 	SetFontOptions(options *FontOptions)
@@ -209,7 +208,7 @@ type Context interface {
 	GetScaledFont() ScaledFont
 	FontExtents() *FontExtents
 
-	// PangoCairo functions
+	// PangoCairo functions (use these for text rendering)
 	PangoCairoCreateLayout() interface{}
 	PangoCairoUpdateLayout(layout interface{})
 	PangoCairoShowText(layout interface{})

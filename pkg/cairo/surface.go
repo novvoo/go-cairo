@@ -232,6 +232,8 @@ func (s *imageSurface) createGoImage() {
 	s.goImage = s.rgbaImage
 }
 
+// syncARGBData synchronizes RGBA data back to ARGB format
+// This is used when the RGBA buffer has been modified and needs to be synced back
 func (s *imageSurface) syncARGBData() {
 	if s.rgbaImage == nil || s.format != FormatARGB32 {
 		return
