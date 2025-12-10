@@ -14,11 +14,6 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-func init() {
-	// Initialize draw2d fonts
-	InitDraw2DFonts()
-}
-
 // getFontKey creates a lookup key for font cache
 func getFontKey(family string, slant FontSlant, weight FontWeight) string {
 	familyKey := family

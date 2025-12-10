@@ -31,7 +31,7 @@ type imageSurface struct {
 	stride int
 	format Format
 
-	// RGBA buffer for draw2d interoperability
+	// RGBA buffer for image interoperability
 	rgbaData  []byte
 	rgbaImage *image.RGBA
 	goImage   image.Image

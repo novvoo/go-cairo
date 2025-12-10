@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/go-text/typesetting/font"
-	"github.com/llgcode/draw2d"
 	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/gofont/gobolditalic"
 	"golang.org/x/image/font/gofont/goitalic"
@@ -16,11 +15,9 @@ import (
 
 // Font cache to avoid re-parsing fonts
 var (
-	fontCache         = make(map[string]font.Face)
-	fontDataCache     = make(map[string][]byte)
-	fontCacheMu       sync.RWMutex
-	draw2dFontCache   = make(map[draw2d.FontData]font.Face)
-	draw2dFontCacheMu sync.RWMutex
+	fontCache     = make(map[string]font.Face)
+	fontDataCache = make(map[string][]byte)
+	fontCacheMu   sync.RWMutex
 )
 
 // Internal font data storage
@@ -127,53 +124,4 @@ func GetDejaVuSans() (font.Face, []byte) {
 		return GetDefaultFont()
 	}
 	return face, data
-}
-
-// RegisterFontWithDraw2D registers a font with the draw2d font system
-func RegisterFontWithDraw2D(fontData draw2d.FontData, face font.Face) {
-	draw2dFontCacheMu.Lock()
-	defer draw2dFontCacheMu.Unlock()
-	draw2dFontCache[fontData] = face
-}
-
-// GetDraw2DFont retrieves a font from the draw2d cache
-func GetDraw2DFont(fontData draw2d.FontData) (font.Face, bool) {
-	draw2dFontCacheMu.RLock()
-	defer draw2dFontCacheMu.RUnlock()
-	face, ok := draw2dFontCache[fontData]
-	return face, ok
-}
-
-// InitDraw2DFonts initializes the draw2d font system with our fonts
-func InitDraw2DFonts() {
-	// Register all embedded fonts with draw2d
-	fontMappings := []struct {
-		name   string
-		family draw2d.FontFamily
-		style  draw2d.FontStyle
-	}{
-		{"sans-regular", draw2d.FontFamilySans, draw2d.FontStyleNormal},
-		{"sans-bold", draw2d.FontFamilySans, draw2d.FontStyleBold},
-		{"sans-italic", draw2d.FontFamilySans, draw2d.FontStyleItalic},
-		{"sans-bolditalic", draw2d.FontFamilySans, draw2d.FontStyleBold | draw2d.FontStyleItalic},
-		{"serif-regular", draw2d.FontFamilySerif, draw2d.FontStyleNormal},
-		{"serif-bold", draw2d.FontFamilySerif, draw2d.FontStyleBold},
-		{"serif-italic", draw2d.FontFamilySerif, draw2d.FontStyleItalic},
-		{"serif-bolditalic", draw2d.FontFamilySerif, draw2d.FontStyleBold | draw2d.FontStyleItalic},
-		{"mono-regular", draw2d.FontFamilyMono, draw2d.FontStyleNormal},
-		{"mono-bold", draw2d.FontFamilyMono, draw2d.FontStyleBold},
-		{"mono-italic", draw2d.FontFamilyMono, draw2d.FontStyleItalic},
-		{"mono-bolditalic", draw2d.FontFamilyMono, draw2d.FontStyleBold | draw2d.FontStyleItalic},
-	}
-
-	for _, mapping := range fontMappings {
-		face, _, err := LoadEmbeddedFont(mapping.name)
-		if err == nil {
-			fontData := draw2d.FontData{
-				Family: mapping.family,
-				Style:  mapping.style,
-			}
-			RegisterFontWithDraw2D(fontData, face)
-		}
-	}
 }

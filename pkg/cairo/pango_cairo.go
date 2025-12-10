@@ -1467,6 +1467,12 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 		// Get the glyph path
 		glyphPath, err := sf.GlyphPath(glyph.Index)
 		if err != nil || glyphPath == nil {
+			fmt.Printf("[DEBUG] Skipping glyph %d: path error=%v, path==nil=%v\n", glyph.Index, err, glyphPath == nil)
+			continue
+		}
+
+		if len(glyphPath.Data) == 0 {
+			fmt.Printf("[DEBUG] Skipping glyph %d: empty path\n", glyph.Index)
 			continue
 		}
 
@@ -1475,15 +1481,18 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 
 		// Translate the glyph path to the correct position and add to context
 		// The glyph path is in font space, we need to translate it to the glyph position
+		pathSegments := 0
 		for _, pathData := range glyphPath.Data {
 			switch pathData.Type {
 			case PathMoveTo:
 				if len(pathData.Points) > 0 {
 					c.MoveTo(pathData.Points[0].X+glyph.X, pathData.Points[0].Y+glyph.Y)
+					pathSegments++
 				}
 			case PathLineTo:
 				if len(pathData.Points) > 0 {
 					c.LineTo(pathData.Points[0].X+glyph.X, pathData.Points[0].Y+glyph.Y)
+					pathSegments++
 				}
 			case PathCurveTo:
 				if len(pathData.Points) >= 3 {
@@ -1492,11 +1501,15 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 						pathData.Points[1].X+glyph.X, pathData.Points[1].Y+glyph.Y,
 						pathData.Points[2].X+glyph.X, pathData.Points[2].Y+glyph.Y,
 					)
+					pathSegments++
 				}
 			case PathClosePath:
 				c.ClosePath()
+				pathSegments++
 			}
 		}
+
+		fmt.Printf("[DEBUG] Glyph %d at (%.2f, %.2f): added %d path segments\n", glyph.Index, glyph.X, glyph.Y, pathSegments)
 
 		// Fill the glyph
 		c.Fill()

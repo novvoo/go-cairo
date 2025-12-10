@@ -1,24 +1,21 @@
 package cairo
 
 import (
+	"fmt"
 	"image"
+	"image/color"
 	"math"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"unsafe"
-
-	"image/color"
-
-	"github.com/llgcode/draw2d"
-	"github.com/llgcode/draw2d/draw2dimg"
 )
 
 // GroupSurface is a temporary surface used for group operations.
 type GroupSurface struct {
 	Surface
 	originalTarget Surface
-	originalGC     draw2d.GraphicContext
+	originalGC     *rasterContext
 }
 
 // context implements the Context interface
@@ -51,7 +48,7 @@ type context struct {
 	}
 
 	// Drawing context for backend
-	gc draw2d.GraphicContext
+	gc *rasterContext
 }
 
 // graphicsState represents the graphics state that can be saved/restored
@@ -142,10 +139,10 @@ func NewContext(target Surface) Context {
 		imgSurf := target.(ImageSurface)
 		goImage := imgSurf.GetGoImage()
 		if goImage != nil {
-			ctx.gc = draw2dimg.NewGraphicContext(goImage.(*image.RGBA))
+			ctx.gc = newRasterContext(goImage.(*image.RGBA))
 		} else {
 			dummyImage := image.NewRGBA(image.Rect(0, 0, imgSurf.GetWidth(), imgSurf.GetHeight()))
-			ctx.gc = draw2dimg.NewGraphicContext(dummyImage)
+			ctx.gc = newRasterContext(dummyImage)
 		}
 
 		// Initialize with identity matrix (standard image coordinate system: Y grows downward)
@@ -153,14 +150,14 @@ func NewContext(target Surface) Context {
 		// with circles and other shapes when using negative Y scaling.
 		ctx.gstate.matrix.InitIdentity()
 	case *pdfSurface:
-		// Create a draw2d PDF context
+		// Create a raster context for PDF
 		dummyImage := image.NewRGBA(image.Rect(0, 0, int(s.width), int(s.height)))
-		ctx.gc = draw2dimg.NewGraphicContext(dummyImage)
+		ctx.gc = newRasterContext(dummyImage)
 		// Store a reference in the surface for Finish()
 	case *svgSurface:
-		// Create a draw2d SVG context
+		// Create a raster context for SVG
 		dummyImage := image.NewRGBA(image.Rect(0, 0, int(s.width), int(s.height)))
-		ctx.gc = draw2dimg.NewGraphicContext(dummyImage)
+		ctx.gc = newRasterContext(dummyImage)
 		// Store a reference in the surface for Finish()
 	}
 
@@ -738,9 +735,12 @@ func (c *context) applyPathToDraw2D() {
 			opCount++
 		}
 	}
+	if opCount > 0 {
+		fmt.Printf("[DEBUG applyPathToDraw2D] Applied %d path operations\n", opCount)
+	}
 }
 
-// Helper to apply cairo state to draw2d context
+// Helper to apply cairo state to raster context
 func (c *context) applyStateToDraw2D() {
 	if c.gc == nil {
 		return
@@ -748,26 +748,13 @@ func (c *context) applyStateToDraw2D() {
 
 	// Line properties
 	c.gc.SetLineWidth(c.gstate.lineWidth)
-
-	// Operator (Blending)
-	// Cairo's blending operators are complex. Since draw2d does not expose
-	// a direct way to set the blend operator, we will implement a custom
-	// blend function that is applied to the source color before drawing.
-	// This is a simplification, as true blending should happen at the pixel
-	// level during the draw operation.
-
-	// Antialias
-	// draw2d does not expose a direct way to set antialiasing mode.
-	// We'll rely on the underlying image context's antialiasing settings.
-	// For now, we'll ignore c.gstate.antialias.
-	c.gc.SetLineCap(cairoLineCapToDraw2D(c.gstate.lineCap))
-	c.gc.SetLineJoin(cairoLineJoinToDraw2D(c.gstate.lineJoin))
-	// Note: draw2d doesn't have SetMiterLimit method
+	c.gc.SetLineCap(c.gstate.lineCap)
+	c.gc.SetLineJoin(c.gstate.lineJoin)
 	c.gc.SetLineDash(c.gstate.dash, c.gstate.dashOffset)
 
 	// Transformation matrix
 	m := c.gstate.matrix
-	c.gc.SetMatrixTransform(draw2d.Matrix{
+	c.gc.SetMatrixTransform([6]float64{
 		m.XX, m.YX,
 		m.XY, m.YY,
 		m.X0, m.Y0,
@@ -791,55 +778,20 @@ func (c *context) applyStateToDraw2D() {
 		fontSize := math.Hypot(c.gstate.fontMatrix.XX, c.gstate.fontMatrix.YX)
 		c.gc.SetFontSize(fontSize)
 	case LinearGradientPattern:
-		// Gradient patterns are complex and not fully supported in draw2d
+		// Gradient patterns are complex and not fully supported
 		// For now, use a solid color approximation
 		c.gc.SetFillColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
 		c.gc.SetStrokeColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
 	case RadialGradientPattern:
-		// Gradient patterns are complex and not fully supported in draw2d
+		// Gradient patterns are complex and not fully supported
 		// For now, use a solid color approximation
 		c.gc.SetFillColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
 		c.gc.SetStrokeColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
 	case SurfacePattern:
-		// Surface patterns are complex and not fully supported in draw2d
+		// Surface patterns are complex and not fully supported
 		// For now, use a solid color approximation
 		c.gc.SetFillColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
 		c.gc.SetStrokeColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
-	}
-
-	// Fill rule
-	if c.gstate.fillRule == FillRuleEvenOdd {
-		// draw2d does not directly support EvenOdd. We will use the default
-		// NonZero (Winding) rule as a simplification, which is a common
-		// fallback in libraries lacking full EvenOdd support.
-		// A proper implementation would require path flattening and a custom
-		// EvenOdd fill algorithm.
-	}
-}
-
-func cairoLineCapToDraw2D(cap LineCap) draw2d.LineCap {
-	switch cap {
-	case LineCapRound:
-		return draw2d.RoundCap
-	case LineCapSquare:
-		return draw2d.SquareCap
-	case LineCapButt:
-		fallthrough
-	default:
-		return draw2d.ButtCap
-	}
-}
-
-func cairoLineJoinToDraw2D(join LineJoin) draw2d.LineJoin {
-	switch join {
-	case LineJoinRound:
-		return draw2d.RoundJoin
-	case LineJoinBevel:
-		return draw2d.BevelJoin
-	case LineJoinMiter:
-		fallthrough
-	default:
-		return draw2d.MiterJoin
 	}
 }
 
