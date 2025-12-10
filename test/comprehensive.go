@@ -95,9 +95,10 @@ func main() {
 
 	ctx.SetSourceRGB(1, 0, 1) // Magenta
 	ctx.SetLineWidth(3)
-	ctx.Arc(200, 200, 50, 0, 2*math.Pi) // Circle at center
+	// Use DrawCircle for better precision
+	ctx.DrawCircle(200, 200, 50) // Circle at center
 	ctx.Stroke()
-	fmt.Println("   Circle drawn at (200, 200) with radius 50")
+	fmt.Println("   Circle drawn at (200, 200) with radius 50 using DrawCircle")
 
 	// Test 4: Text rendering using PangoCairo
 	fmt.Println("🔤 Drawing text samples...")
@@ -151,13 +152,24 @@ func main() {
 	layout.SetText(text)
 	extents = layout.GetPixelExtents()
 	fontExtents := layout.GetFontExtents()
-	x := (400 - extents.Width) / 2
+
 	// 正确的居中计算：让文字的真实视觉中心位于图像中心
-	// 图像中心Y = 200
-	// 文字中心Y = (顶部 + 底部) / 2 = (y - Ascent + y + Descent) / 2 = y + (Descent - Ascent) / 2
-	// 所以：200 = y + (Descent - Ascent) / 2
-	// 因此：y = 200 - (Descent - Ascent) / 2 = 200 + (Ascent - Descent) / 2
+	// 打印调试信息
+	fmt.Printf("\n🔍 调试 'Center' 文字宽度:\n")
+	fmt.Printf("   extents.Width = %.2f\n", extents.Width)
+	fmt.Printf("   extents.XBearing = %.2f\n", extents.X)
+	fmt.Printf("   extents.Height = %.2f\n", extents.Height)
+	fmt.Printf("   extents.YBearing = %.2f\n", extents.Y)
+
+	// X轴：图像中心 - 文字宽度的一半 = 文字左边界
+	// 但需要考虑 XBearing（左侧空白）
+	x := 200 - extents.Width/2 - extents.X
+	// Y轴：图像中心 + (Ascent - Descent) / 2 = 基线位置
 	y := 200 + (fontExtents.Ascent-fontExtents.Descent)/2
+
+	fmt.Printf("   计算的 x = %.2f (200 - %.2f/2 - %.2f)\n", x, extents.Width, extents.X)
+	fmt.Printf("   计算的 y = %.2f\n\n", y)
+
 	ctx.MoveTo(x, y)
 	ctx.PangoCairoShowText(layout)
 

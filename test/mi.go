@@ -105,8 +105,8 @@ func main() {
 	}
 
 	// === 计算字母间距，防止重叠 ===
-	baseSpacing := 2.0
-	dynamicSpacing := fontExtents.Height * 0.05 // 字体高度的5%
+	baseSpacing := 8.0                         // 增加基础间距从2.0到8.0
+	dynamicSpacing := fontExtents.Height * 0.1 // 字体高度的10%（从5%增加）
 	letterSpacing := math.Max(baseSpacing, dynamicSpacing)
 
 	// === 渲染文字（让库自动处理坐标系）===
