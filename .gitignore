@@ -2,6 +2,5 @@ cplus
 docs
 images
 *.exe
-*.png
 *.md
 !README.md

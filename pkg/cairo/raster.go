@@ -410,59 +410,110 @@ func (r *rasterContext) pointInTransformedPath(x, y float64, path []transformedP
 	return winding != 0
 }
 
-// drawLine draws a line using Bresenham's algorithm
+// drawLine draws an antialiased line with specified width
 func (r *rasterContext) drawLine(x0, y0, x1, y1 float64, c color.Color) {
 	// Transform points
 	x0t, y0t := MatrixTransformPoint(&r.matrix, x0, y0)
 	x1t, y1t := MatrixTransformPoint(&r.matrix, x1, y1)
 
-	// Convert to integers
-	ix0, iy0 := int(x0t), int(y0t)
-	ix1, iy1 := int(x1t), int(y1t)
+	// Calculate line direction and length
+	dx := x1t - x0t
+	dy := y1t - y0t
+	length := math.Sqrt(dx*dx + dy*dy)
 
-	// Bresenham's line algorithm
-	dx := abs(ix1 - ix0)
-	dy := abs(iy1 - iy0)
-	sx := 1
-	if ix0 > ix1 {
-		sx = -1
+	if length < 0.01 {
+		// Line is too short, just draw a point
+		r.drawAntialiasedCircle(x0t, y0t, r.width/2, c)
+		return
 	}
-	sy := 1
-	if iy0 > iy1 {
-		sy = -1
-	}
-	err := dx - dy
+
+	// Normalize direction
+	dx /= length
+	dy /= length
+
+	// Calculate bounding box
+	halfWidth := r.width / 2
+	minX := math.Min(x0t, x1t) - halfWidth - 1
+	maxX := math.Max(x0t, x1t) + halfWidth + 1
+	minY := math.Min(y0t, y1t) - halfWidth - 1
+	maxY := math.Max(y0t, y1t) + halfWidth + 1
 
 	bounds := r.img.Bounds()
-	halfWidth := int(r.width / 2)
+	x1i := int(math.Max(minX, float64(bounds.Min.X)))
+	y1i := int(math.Max(minY, float64(bounds.Min.Y)))
+	x2i := int(math.Min(maxX, float64(bounds.Max.X)))
+	y2i := int(math.Min(maxY, float64(bounds.Max.Y)))
 
-	for {
-		// Draw thick line by drawing a circle at each point
-		for dy := -halfWidth; dy <= halfWidth; dy++ {
-			for dx := -halfWidth; dx <= halfWidth; dx++ {
-				if dx*dx+dy*dy <= halfWidth*halfWidth {
-					px, py := ix0+dx, iy0+dy
-					if px >= bounds.Min.X && px < bounds.Max.X && py >= bounds.Min.Y && py < bounds.Max.Y {
-						r.img.Set(px, py, c)
-					}
-				}
+	// Draw antialiased line using distance field
+	for y := y1i; y < y2i; y++ {
+		for x := x1i; x < x2i; x++ {
+			// Calculate distance from pixel center to line segment
+			px_center := float64(x) + 0.5
+			py_center := float64(y) + 0.5
+
+			dist := r.pointToLineSegmentDistance(px_center, py_center, x0t, y0t, x1t, y1t)
+
+			// Calculate coverage based on distance
+			coverage := 1.0 - math.Max(0, math.Min(1, dist-halfWidth+0.5))
+
+			if coverage > 0 {
+				r.blendPixel(x, y, c, coverage)
 			}
 		}
+	}
+}
 
-		if ix0 == ix1 && iy0 == iy1 {
-			break
-		}
+// drawAntialiasedCircle draws an antialiased circle (used for line caps)
+func (r *rasterContext) drawAntialiasedCircle(cx, cy, radius float64, c color.Color) {
+	bounds := r.img.Bounds()
+	x1 := int(math.Max(cx-radius-1, float64(bounds.Min.X)))
+	y1 := int(math.Max(cy-radius-1, float64(bounds.Min.Y)))
+	x2 := int(math.Min(cx+radius+1, float64(bounds.Max.X)))
+	y2 := int(math.Min(cy+radius+1, float64(bounds.Max.Y)))
 
-		e2 := 2 * err
-		if e2 > -dy {
-			err -= dy
-			ix0 += sx
-		}
-		if e2 < dx {
-			err += dx
-			iy0 += sy
+	for y := y1; y < y2; y++ {
+		for x := x1; x < x2; x++ {
+			px := float64(x) + 0.5
+			py := float64(y) + 0.5
+			dx := px - cx
+			dy := py - cy
+			dist := math.Sqrt(dx*dx + dy*dy)
+
+			// Antialiased edge
+			coverage := 1.0 - math.Max(0, math.Min(1, dist-radius+0.5))
+
+			if coverage > 0 {
+				r.blendPixel(x, y, c, coverage)
+			}
 		}
 	}
+}
+
+// pointToLineSegmentDistance calculates the distance from a point to a line segment
+func (r *rasterContext) pointToLineSegmentDistance(px, py, x0, y0, x1, y1 float64) float64 {
+	dx := x1 - x0
+	dy := y1 - y0
+	lengthSq := dx*dx + dy*dy
+
+	if lengthSq < 0.0001 {
+		// Line segment is a point
+		dpx := px - x0
+		dpy := py - y0
+		return math.Sqrt(dpx*dpx + dpy*dpy)
+	}
+
+	// Calculate projection parameter
+	t := ((px-x0)*dx + (py-y0)*dy) / lengthSq
+	t = math.Max(0, math.Min(1, t))
+
+	// Calculate closest point on segment
+	closestX := x0 + t*dx
+	closestY := y0 + t*dy
+
+	// Calculate distance
+	dpx := px - closestX
+	dpy := py - closestY
+	return math.Sqrt(dpx*dpx + dpy*dpy)
 }
 
 // pointInPath checks if a point is inside the path using winding number algorithm

@@ -1032,14 +1032,15 @@ func (c *context) Arc(xc, yc, radius, angle1, angle2 float64) {
 		cb := math.Cos(a2)
 		sb := math.Sin(a2)
 
-		// Calculate Bezier control points
-		// Using approximation for circular arc with Bezier curves
-		d := math.Tan((a2 - a1) / 4)
+		// Calculate Bezier control points using the standard formula
+		// for approximating circular arcs with cubic Bezier curves
+		// The magic constant is (4/3) * tan(θ/4) where θ is the arc angle
+		alpha := math.Sin(a2-a1) * (math.Sqrt(4+3*math.Tan((a2-a1)/2)*math.Tan((a2-a1)/2)) - 1) / 3
 
-		x2 := xc + radius*(ca-d*sa)
-		y2 := yc + radius*(sa+d*ca)
-		x3 := xc + radius*(cb+d*sb)
-		y3 := yc + radius*(sb-d*cb)
+		x2 := xc + radius*(ca-alpha*sa)
+		y2 := yc + radius*(sa+alpha*ca)
+		x3 := xc + radius*(cb+alpha*sb)
+		y3 := yc + radius*(sb-alpha*cb)
 		x4 := xc + radius*cb
 		y4 := yc + radius*sb
 
@@ -1097,12 +1098,13 @@ func (c *context) ArcNegative(xc, yc, radius, angle1, angle2 float64) {
 		sb := math.Sin(a2)
 
 		// Calculate Bezier control points (negative direction)
-		d := math.Tan((a2 - a1) / 4)
+		// Using the standard formula for circular arcs
+		alpha := math.Sin(a2-a1) * (math.Sqrt(4+3*math.Tan((a2-a1)/2)*math.Tan((a2-a1)/2)) - 1) / 3
 
-		x2 := xc + radius*(ca+d*sa)
-		y2 := yc + radius*(sa-d*ca)
-		x3 := xc + radius*(cb-d*sb)
-		y3 := yc + radius*(sb+d*cb)
+		x2 := xc + radius*(ca+alpha*sa)
+		y2 := yc + radius*(sa-alpha*ca)
+		x3 := xc + radius*(cb-alpha*sb)
+		y3 := yc + radius*(sb+alpha*cb)
 		x4 := xc + radius*cb
 		y4 := yc + radius*sb
 
@@ -1144,6 +1146,22 @@ func (c *context) Rectangle(x, y, width, height float64) {
 	c.LineTo(x+width, y)
 	c.LineTo(x+width, y+height)
 	c.LineTo(x, y+height)
+	c.ClosePath()
+}
+
+// DrawCircle adds a circular path to the current path.
+// This is a convenience method that calls Arc with a full circle (0 to 2π).
+// It ensures the circle is drawn with optimal precision by using the Arc method
+// with proper angle normalization.
+func (c *context) DrawCircle(xc, yc, radius float64) {
+	if c.status != StatusSuccess {
+		return
+	}
+
+	// Draw a complete circle using Arc
+	// Start a new subpath to avoid connecting to previous path
+	c.NewSubPath()
+	c.Arc(xc, yc, radius, 0, 2*math.Pi)
 	c.ClosePath()
 }
 

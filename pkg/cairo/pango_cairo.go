@@ -861,7 +861,13 @@ func (s *PangoCairoScaledFont) TextExtents(utf8 string) *TextExtents {
 		return s.toyTextExtentsFallback(utf8)
 	}
 
-	// 1. Shape the text
+	// Get font size from font matrix
+	fontSize := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	if fontSize == 0 {
+		fontSize = 12.0
+	}
+
+	// 1. Shape the text with correct font size
 	runes := []rune(utf8)
 	input := shaping.Input{
 		Text:      runes,
@@ -869,7 +875,7 @@ func (s *PangoCairoScaledFont) TextExtents(utf8 string) *TextExtents {
 		RunEnd:    len(runes),
 		Direction: di.DirectionLTR,
 		Face:      realFace,
-		Size:      fixed.I(12), // Default size, will be scaled by font matrix
+		Size:      fixed.I(int(fontSize)), // Use actual font size
 	}
 	output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
@@ -879,19 +885,31 @@ func (s *PangoCairoScaledFont) TextExtents(utf8 string) *TextExtents {
 	var minX, minY, maxX, maxY float64
 	firstGlyph := true
 
+	// Get units per em for coordinate conversion
+	unitsPerEm := float64(realFace.Upem())
+	scaleX := fontSize
+	scaleY := fontSize
+
 	for _, g := range output.Glyphs {
 		// Get glyph outline for bounds calculation
 		glyphData := realFace.GlyphData(api.GID(g.GlyphID))
 		if outline, ok := glyphData.(api.GlyphOutline); ok {
-			// Convert outline points to user space - harfbuzz already provides user space coordinates
+			// Convert outline points from font units to user space
 			for _, seg := range outline.Segments {
 				for _, arg := range seg.Args {
-					x := float64(arg.X) / 64.0
-					y := float64(arg.Y) / 64.0
+					// Coordinates are in font units, convert to user space
+					xInFontUnits := float64(arg.X)
+					yInFontUnits := float64(arg.Y)
+
+					x := (xInFontUnits / unitsPerEm) * scaleX
+					y := (yInFontUnits / unitsPerEm) * scaleY
+
+					// Apply Y flip to match rendering
+					y = -y
 
 					// Add glyph position (current X + offset)
 					x += curX + float64(g.XOffset)/64.0
-					y -= float64(g.YOffset) / 64.0 // Subtract because glyph offsets are in font coordinate system
+					y -= float64(g.YOffset) / 64.0 // Subtract for Y offset
 
 					// For the first glyph, initialize bounds
 					if firstGlyph {
@@ -929,7 +947,7 @@ func (s *PangoCairoScaledFont) TextExtents(utf8 string) *TextExtents {
 	ext.Width = maxX - minX
 	ext.Height = maxY - minY
 	ext.XBearing = minX
-	ext.YBearing = -maxY // Negative because Y axis is inverted in Cairo
+	ext.YBearing = minY // Already flipped, use minY directly
 
 	return ext
 }
@@ -1210,12 +1228,25 @@ func (s *PangoCairoScaledFont) GetGlyphMetrics(r rune) (*GlyphMetrics, Status) {
 	var xmin, xmax, ymin, ymax float64
 	firstPoint := true
 
+	// We need to apply Y flip here to match the actual rendered path
+	flipY := true
+
 	pointCount := 0
 	for _, seg := range outline.Segments {
 		for _, arg := range seg.Args {
 			// Coordinates are already in font units (float32), just convert to float64
 			xInFontUnits := float64(arg.X)
 			yInFontUnits := float64(arg.Y)
+
+			// Debug: print first few points for 'M'
+			if r == 'M' && pointCount < 3 {
+				fmt.Printf("[DEBUG] 'M' point %d: raw X=%.2f, Y=%.2f\n", pointCount, xInFontUnits, yInFontUnits)
+			}
+
+			// Apply Y flip to match rendered coordinates
+			if flipY {
+				yInFontUnits = -yInFontUnits
+			}
 
 			pointCount++
 
@@ -1246,9 +1277,22 @@ func (s *PangoCairoScaledFont) GetGlyphMetrics(r rune) (*GlyphMetrics, Status) {
 	ymin = (ymin / unitsPerEm) * scaleY
 	ymax = (ymax / unitsPerEm) * scaleY
 
+	// Debug output for character 'M'
+	if r == 'M' {
+		fmt.Printf("[DEBUG GetGlyphMetrics] 'M': xmin=%.2f, xmax=%.2f, ymin=%.2f, ymax=%.2f\n", xmin, xmax, ymin, ymax)
+	}
+
 	// Get horizontal metrics from the font's hmtx table
 	// HorizontalAdvance returns the advance width in font units (not 26.6 format)
 	rawAdvance := realFace.HorizontalAdvance(gid)
+
+	// Get the glyph's horizontal metrics including LSB
+	// The GlyphData contains the actual outline, but we need to check if there's an LSB offset
+	// In TrueType fonts, the glyph outline coordinates are relative to the glyph origin,
+	// but there may be a left side bearing that offsets the visual position
+
+	// Try to get the glyph's bounding box from the font if available
+	// For now, we'll use the outline's actual bounds which already include any LSB
 
 	// Convert from font units to user space units
 	// Formula: (font_units / units_per_em) * font_size
@@ -1265,7 +1309,7 @@ func (s *PangoCairoScaledFont) GetGlyphMetrics(r rune) (*GlyphMetrics, Status) {
 		YBearing: -ymax, // Negative because Y axis is inverted in Cairo
 	}
 
-	// Set bounding box
+	// Set bounding box - these are relative to the glyph origin
 	metrics.BoundingBox.XMin = xmin
 	metrics.BoundingBox.YMin = ymin
 	metrics.BoundingBox.XMax = xmax
@@ -1274,6 +1318,9 @@ func (s *PangoCairoScaledFont) GetGlyphMetrics(r rune) (*GlyphMetrics, Status) {
 	// Calculate side bearings
 	metrics.LSB = xmin
 	metrics.RSB = advanceWidth - xmax
+
+	// Update XBearing to match the actual left edge of the glyph
+	metrics.XBearing = xmin
 
 	return metrics, StatusSuccess
 }
@@ -1464,15 +1511,20 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 
 	// Render each glyph directly to the surface
 	for _, glyph := range glyphs {
+		// Save context state before rendering each glyph
+		c.Save()
+
 		// Get the glyph path
 		glyphPath, err := sf.GlyphPath(glyph.Index)
 		if err != nil || glyphPath == nil {
 			fmt.Printf("[DEBUG] Skipping glyph %d: path error=%v, path==nil=%v\n", glyph.Index, err, glyphPath == nil)
+			c.Restore()
 			continue
 		}
 
 		if len(glyphPath.Data) == 0 {
 			fmt.Printf("[DEBUG] Skipping glyph %d: empty path\n", glyph.Index)
+			c.Restore()
 			continue
 		}
 
@@ -1513,6 +1565,9 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 
 		// Fill the glyph
 		c.Fill()
+
+		// Restore context state after rendering each glyph
+		c.Restore()
 	}
 
 	// Update current point to the position after the last glyph

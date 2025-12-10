@@ -159,6 +159,7 @@ type Context interface {
 	RelLineTo(dx, dy float64)
 	RelCurveTo(dx1, dy1, dx2, dy2, dx3, dy3 float64)
 	Rectangle(x, y, width, height float64)
+	DrawCircle(xc, yc, radius float64)
 	ClosePath()
 	PathExtents() (x1, y1, x2, y2 float64)
 
