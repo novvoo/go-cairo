@@ -148,19 +148,10 @@ func NewContext(target Surface) Context {
 			ctx.gc = draw2dimg.NewGraphicContext(dummyImage)
 		}
 
-		// Apply Y-axis flip compensation for ImageSurface to match Cairo's coordinate system
-		// In Cairo, the default coordinate system has Y growing upward, but image formats
-		// have Y growing downward. We need to flip the Y axis and translate to match.
+		// Initialize with identity matrix (standard image coordinate system: Y grows downward)
+		// This matches the behavior of most graphics libraries and avoids rendering issues
+		// with circles and other shapes when using negative Y scaling.
 		ctx.gstate.matrix.InitIdentity()
-		ctx.gstate.matrix.YY = -1.0
-		ctx.gstate.matrix.Y0 = float64(imgSurf.GetHeight())
-
-		// Also apply the transformation to the draw2d context to ensure consistency
-		ctx.gc.SetMatrixTransform(draw2d.Matrix{
-			1.0, 0.0,
-			0.0, -1.0,
-			0.0, float64(imgSurf.GetHeight()),
-		})
 	case *pdfSurface:
 		// Create a draw2d PDF context
 		dummyImage := image.NewRGBA(image.Rect(0, 0, int(s.width), int(s.height)))

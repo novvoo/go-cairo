@@ -875,12 +875,11 @@ func (s *PangoCairoScaledFont) TextExtents(utf8 string) *TextExtents {
 
 	// Calculate total advance and bounds
 	var totalAdvance fixed.Int26_6
+	var curX float64 // Current X position for glyph placement
 	var minX, minY, maxX, maxY float64
 	firstGlyph := true
 
 	for _, g := range output.Glyphs {
-		totalAdvance += g.XAdvance
-
 		// Get glyph outline for bounds calculation
 		glyphData := realFace.GlyphData(api.GID(g.GlyphID))
 		if outline, ok := glyphData.(api.GlyphOutline); ok {
@@ -890,9 +889,9 @@ func (s *PangoCairoScaledFont) TextExtents(utf8 string) *TextExtents {
 					x := float64(arg.X) / 64.0
 					y := float64(arg.Y) / 64.0
 
-					// Add glyph position
-					x += float64(g.XOffset) / 64.0
-					y -= float64(g.YOffset) / 64.0 // Negative for Y flip
+					// Add glyph position (current X + offset)
+					x += curX + float64(g.XOffset)/64.0
+					y -= float64(g.YOffset) / 64.0 // Subtract because glyph offsets are in font coordinate system
 
 					// For the first glyph, initialize bounds
 					if firstGlyph {
@@ -916,6 +915,10 @@ func (s *PangoCairoScaledFont) TextExtents(utf8 string) *TextExtents {
 				}
 			}
 		}
+
+		// Advance to next glyph position
+		curX += float64(g.XAdvance) / 64.0
+		totalAdvance += g.XAdvance
 	}
 
 	// Convert to user space units
@@ -992,12 +995,9 @@ func (s *PangoCairoScaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 	}
 
 	// Check if we need to flip the Y axis based on the font matrix
-	// In Cairo, the default coordinate system has Y growing downward, but font glyphs
-	// are designed for Y growing upward. We need to flip the Y axis for proper text orientation.
-	// However, the context matrix already handles the Y-flip (YY=-1), so we should NOT flip
-	// the glyph path here to avoid double flipping.
-	// Only flip if the font matrix itself has negative Y scale (which would be unusual)
-	flipY := s.fontMatrix.YY < 0
+	// Font glyphs are designed for Y growing upward, but our coordinate system has Y growing downward.
+	// Since we now use positive Y scale in font matrix, we always need to flip.
+	flipY := true
 
 	// Get font units per em and scale factor for coordinate transformation
 	unitsPerEm := float64(realFace.Upem())
@@ -1347,7 +1347,7 @@ func (s *PangoCairoScaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs [
 		glyphs[i] = Glyph{
 			Index: uint64(g.GlyphID),
 			X:     x + curX + float64(g.XOffset)/64.0,
-			Y:     y + curY - float64(g.YOffset)/64.0, // Negative for Y flip
+			Y:     y + curY - float64(g.YOffset)/64.0, // Subtract because glyph offsets are in font coordinate system
 		}
 
 		// Add the advance width for the next glyph
@@ -1434,7 +1434,8 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 	defer fontFace.Destroy()
 
 	fontMatrix := NewMatrix()
-	// Use positive Y scale - the context already has Y-flip applied
+	// Use positive Y scale - our coordinate system has Y growing downward,
+	// and we'll handle the glyph flip in the rendering code
 	fontMatrix.InitScale(layout.fontDesc.size, layout.fontDesc.size)
 
 	ctm := NewMatrix()
@@ -1469,39 +1470,36 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 			continue
 		}
 
-		// Save current state
-		savedPath := c.path
+		// Clear current path and create a new one for this glyph
+		c.NewPath()
 
-		// Create a new path for this glyph
-		c.path = &path{data: make([]pathOp, 0)}
-
-		// Translate the glyph path to the correct position
+		// Translate the glyph path to the correct position and add to context
 		// The glyph path is in font space, we need to translate it to the glyph position
 		for _, pathData := range glyphPath.Data {
-			translatedPoints := make([]Point, len(pathData.Points))
-			for i, p := range pathData.Points {
-				translatedPoints[i] = Point{
-					X: p.X + glyph.X,
-					Y: p.Y + glyph.Y,
+			switch pathData.Type {
+			case PathMoveTo:
+				if len(pathData.Points) > 0 {
+					c.MoveTo(pathData.Points[0].X+glyph.X, pathData.Points[0].Y+glyph.Y)
 				}
+			case PathLineTo:
+				if len(pathData.Points) > 0 {
+					c.LineTo(pathData.Points[0].X+glyph.X, pathData.Points[0].Y+glyph.Y)
+				}
+			case PathCurveTo:
+				if len(pathData.Points) >= 3 {
+					c.CurveTo(
+						pathData.Points[0].X+glyph.X, pathData.Points[0].Y+glyph.Y,
+						pathData.Points[1].X+glyph.X, pathData.Points[1].Y+glyph.Y,
+						pathData.Points[2].X+glyph.X, pathData.Points[2].Y+glyph.Y,
+					)
+				}
+			case PathClosePath:
+				c.ClosePath()
 			}
-
-			// Add the translated path operation
-			op := pathOp{
-				op:     pathData.Type,
-				points: make([]point, len(translatedPoints)),
-			}
-			for i, p := range translatedPoints {
-				op.points[i] = point{x: p.X, y: p.Y}
-			}
-			c.path.data = append(c.path.data, op)
 		}
 
-		// Fill the glyph directly on the surface
-		c.FillPreserve()
-
-		// Restore state
-		c.path = savedPath
+		// Fill the glyph
+		c.Fill()
 	}
 
 	// Update current point to the position after the last glyph
@@ -1694,8 +1692,8 @@ func (l *PangoCairoLayout) GetPixelExtents() *PangoRectangle {
 	defer fontFace.Destroy()
 
 	fontMatrix := NewMatrix()
-	// Use negative Y scale to match Cairo's coordinate system (Y grows downward)
-	fontMatrix.InitScale(l.fontDesc.size, -l.fontDesc.size)
+	// Use positive Y scale - our coordinate system has Y growing downward, and we'll handle the glyph flip in the rendering code
+	fontMatrix.InitScale(l.fontDesc.size, l.fontDesc.size)
 
 	ctm := NewMatrix()
 	ctm.InitIdentity()
@@ -1724,8 +1722,8 @@ func (l *PangoCairoLayout) GetFontExtents() *FontExtents {
 	defer fontFace.Destroy()
 
 	fontMatrix := NewMatrix()
-	// Use negative Y scale to match Cairo's coordinate system (Y grows downward)
-	fontMatrix.InitScale(l.fontDesc.size, -l.fontDesc.size)
+	// Use positive Y scale - our coordinate system has Y growing downward, and we'll handle the glyph flip in the rendering code
+	fontMatrix.InitScale(l.fontDesc.size, l.fontDesc.size)
 
 	ctm := NewMatrix()
 	ctm.InitIdentity()

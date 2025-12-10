@@ -680,7 +680,7 @@ func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
 					// Add glyph position
 					// Fix 1: Remove incorrect unitsPerEm division
 					x += float64(g.XOffset) / 64.0
-					y -= float64(g.YOffset) / 64.0 // Negative for Y flip
+					y -= float64(g.YOffset) / 64.0 // Subtract because glyph offsets are in font coordinate system
 
 					// For the first glyph, initialize bounds
 					if firstGlyph {
@@ -787,9 +787,9 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 	// unitsPerEm := float64(realFace.Upem())
 
 	// Check if we need to flip the Y axis based on the font matrix
-	// In Cairo, the default coordinate system has Y growing downward, but font glyphs
-	// are designed for Y growing upward. We need to flip the Y axis for proper text orientation.
-	flipY := s.fontMatrix.YY > 0
+	// Font glyphs are designed for Y growing upward, but our coordinate system has Y growing downward.
+	// Since we now use positive Y scale in font matrix, we always need to flip.
+	flipY := true
 
 	// FUnits to user space: FUnits * (scale / unitsPerEm) - not needed anymore
 	// funitToUser := func(f float32, scale float64) float64 {
@@ -1126,7 +1126,7 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 		glyphs[i] = Glyph{
 			Index: uint64(g.GlyphID),
 			X:     transformedX + curX + float64(g.XOffset)/64.0,
-			Y:     transformedY + curY - float64(g.YOffset)/64.0, // Negative for Y flip
+			Y:     transformedY + curY - float64(g.YOffset)/64.0, // Subtract because glyph offsets are in font coordinate system
 		}
 
 		// Add the advance width for the next glyph
