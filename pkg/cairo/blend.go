@@ -6,7 +6,7 @@ import (
 
 // cairoBlendColor applies a simplified blend operation to a solid color.
 // NOTE: This is a major simplification. Full Cairo blending requires pixel-level
-// manipulation of the destination surface, which is not exposed by draw2d.
+// manipulation of the destination surface, which is not exposed by Pango.
 // This function only handles the source color's alpha based on the operator.
 func cairoBlendColor(src color.Color, op Operator) color.Color {
 	r, g, b, a := src.RGBA()
@@ -79,5 +79,5 @@ func cairoBlendColor(src color.Color, op Operator) color.Color {
 	}
 }
 
-// TODO: Implement full pixel-level blending by replacing draw2d's drawing mechanism
+// TODO: Implement full pixel-level blending by replacing Pango's drawing mechanism
 // with a custom one that uses image/draw.Drawer and applies the blend function.

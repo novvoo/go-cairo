@@ -7,7 +7,7 @@ import (
 	"math"
 )
 
-// rasterContext is a simple rasterizer that replaces draw2d.GraphicContext
+// rasterContext is a simple rasterizer that replaces Pango.GraphicContext
 type rasterContext struct {
 	img    *image.RGBA
 	color  color.Color

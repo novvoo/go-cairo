@@ -341,11 +341,11 @@ func (c *context) Restore() error {
 		oldState.groupSurface.Surface.Destroy() // Destroy the temporary surface
 	}
 
-	// Re-apply clip path to draw2d context
-	// This is a simplification; a proper implementation would need to store the draw2d path
+	// Re-apply clip path to Pango context
+	// This is a simplification; a proper implementation would need to store the Pango path
 	// or re-create it from the cairo path structure.
 	// For now, we'll just reset the clip.
-	// Note: draw2d doesn't have SetClipPath method, so we skip this for now
+	// Note: Pango doesn't have SetClipPath method, so we skip this for now
 
 	return nil
 }
@@ -395,7 +395,7 @@ func (c *context) SetOperator(op Operator) {
 	}
 	c.gstate.operator = op
 	// TODO: Implement full Porter-Duff compositing logic in the drawing pipeline
-	// (e.g., in applyStateToDraw2D or a custom draw2d implementation)
+	// (e.g., in applyStateToPango or a custom Pango implementation)
 }
 
 func (c *context) GetOperator() Operator {
@@ -422,7 +422,7 @@ func (c *context) SetAntialias(antialias Antialias) {
 	// Sync 1.18's ft-font-accuracy-new: AntialiasBest implies higher precision
 	if antialias == AntialiasBest {
 		// This is a placeholder for setting a higher precision flag in the underlying font system
-		// For draw2d, we can set a lower tolerance for path flattening
+		// For Pango, we can set a lower tolerance for path flattening
 		c.gstate.tolerance = 0.01 // A smaller tolerance for better path accuracy
 	} else if antialias == AntialiasDefault {
 		c.gstate.tolerance = 0.1 // Default tolerance
@@ -706,8 +706,8 @@ func (c *context) ClosePath() {
 	c.currentPoint.y = c.path.subpathStartY
 }
 
-// Helper to convert cairo path to draw2d path
-func (c *context) applyPathToDraw2D() {
+// Helper to convert cairo path to Pango path
+func (c *context) applyPathToPango() {
 	if c.gc == nil {
 		return
 	}
@@ -736,12 +736,12 @@ func (c *context) applyPathToDraw2D() {
 		}
 	}
 	if opCount > 0 {
-		fmt.Printf("[DEBUG applyPathToDraw2D] Applied %d path operations\n", opCount)
+		fmt.Printf("[DEBUG applyPathToPango] Applied %d path operations\n", opCount)
 	}
 }
 
 // Helper to apply cairo state to raster context
-func (c *context) applyStateToDraw2D() {
+func (c *context) applyStateToPango() {
 	if c.gc == nil {
 		return
 	}
@@ -869,7 +869,7 @@ func (c *context) Paint() error {
 		return newError(c.status, "")
 	}
 
-	c.applyStateToDraw2D()
+	c.applyStateToPango()
 
 	// Cairo's paint is equivalent to filling the current clip region with the source pattern.
 	// Since clipping is not fully implemented, we'll fill the entire surface.
@@ -901,7 +901,7 @@ func (c *context) PaintWithAlpha(alpha float64) error {
 
 	// 2. Modify the source pattern's alpha (if possible)
 	// This is a simplification. Cairo creates a new pattern with the alpha applied.
-	// Note: draw2d doesn't have SetGlobalAlpha method, so we skip this for now
+	// Note: Pango doesn't have SetGlobalAlpha method, so we skip this for now
 
 	// 3. Perform the paint operation
 	if err := c.Paint(); err != nil {
@@ -942,8 +942,8 @@ func (c *context) Stroke() error {
 		return newError(c.status, "")
 	}
 
-	c.applyStateToDraw2D()
-	c.applyPathToDraw2D()
+	c.applyStateToPango()
+	c.applyPathToPango()
 	c.gc.Stroke()
 	c.NewPath() // Clear path after stroke
 	return nil
@@ -954,8 +954,8 @@ func (c *context) StrokePreserve() error {
 		return newError(c.status, "")
 	}
 
-	c.applyStateToDraw2D()
-	c.applyPathToDraw2D()
+	c.applyStateToPango()
+	c.applyPathToPango()
 	c.gc.Stroke()
 	return nil
 }
@@ -965,8 +965,8 @@ func (c *context) Fill() error {
 		return newError(c.status, "")
 	}
 
-	c.applyStateToDraw2D()
-	c.applyPathToDraw2D()
+	c.applyStateToPango()
+	c.applyPathToPango()
 	c.gc.Fill()
 	c.NewPath() // Clear path after fill
 	return nil
@@ -977,8 +977,8 @@ func (c *context) FillPreserve() error {
 		return newError(c.status, "")
 	}
 
-	c.applyStateToDraw2D()
-	c.applyPathToDraw2D()
+	c.applyStateToPango()
+	c.applyPathToPango()
 	c.gc.Fill()
 	return nil
 }
@@ -1181,9 +1181,9 @@ func (c *context) Clip() {
 		prev:      c.gstate.clip, // Push current clip onto stack
 	}
 
-	// Apply the new clip path to draw2d
-	c.applyPathToDraw2D()
-	// Note: draw2d doesn't have SetClipPath method, so we skip this for now
+	// Apply the new clip path to Pango
+	c.applyPathToPango()
+	// Note: Pango doesn't have SetClipPath method, so we skip this for now
 
 	// Clear the current path
 	c.NewPath()
@@ -1203,9 +1203,9 @@ func (c *context) ClipPreserve() {
 		prev:      c.gstate.clip, // Push current clip onto stack
 	}
 
-	// Apply the new clip path to draw2d
-	c.applyPathToDraw2D()
-	// Note: draw2d doesn't have SetClipPath method, so we skip this for now
+	// Apply the new clip path to Pango
+	c.applyPathToPango()
+	// Note: Pango doesn't have SetClipPath method, so we skip this for now
 }
 
 func (c *context) ClipExtents() (x1, y1, x2, y2 float64) {
@@ -1232,8 +1232,8 @@ func (c *context) ResetClip() {
 	// Clear the clip stack
 	c.gstate.clip = nil
 
-	// Reset clip in draw2d
-	// Note: draw2d doesn't have SetClipPath method, so we skip this for now
+	// Reset clip in Pango
+	// Note: Pango doesn't have SetClipPath method, so we skip this for now
 }
 func (c *context) CopyClipRectangleList() *RectangleList   { return nil }
 func (c *context) InStroke(x, y float64) Bool              { return False }
