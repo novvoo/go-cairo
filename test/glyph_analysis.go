@@ -19,7 +19,6 @@ func main() {
 	// Test 2: Text with potential collisions
 	testTextWithCollisions()
 
-	fmt.Println("✅ 所有测试已完成，结果保存在 example/")
 }
 
 func testSimpleText() {
@@ -51,7 +50,7 @@ func testSimpleText() {
 	layout.SetFontDescription(fontDesc)
 
 	// 设置文本
-	text := "Hello World"
+	text := "Hello World 你好世界!"
 	layout.SetText(text)
 
 	// Move to position and show text
