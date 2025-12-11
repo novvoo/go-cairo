@@ -76,6 +76,9 @@ The library is organized into several packages:
 
 ### 综合功能测试
 
+**sudoku.go** - 数独
+![数独效果](test/sudoku.png)
+
 **comprehensive.go** - 完整的功能演示，包括：
 - 基础图形绘制（矩形、圆形、线条）
 - 文本渲染和对齐
