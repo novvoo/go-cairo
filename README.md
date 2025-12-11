@@ -124,11 +124,6 @@ go run comprehensive.go
 
 **glyph_outline_debug.go** - 字形轮廓调试工具，输出字形的详细信息
 
-### 与 gg 库对比
-
-**comprehensive-gg.go** - 使用 fogleman/gg 库实现相同效果，用于对比验证
-
-![gg 库对比](comprehensive_test_gg.png)
 
 ## License
 
