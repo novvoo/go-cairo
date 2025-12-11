@@ -26,7 +26,7 @@ var embeddedFonts = map[string][]byte{
 	"Go-Bold":          gobold.TTF,
 	"Go-Italic":        goitalic.TTF,
 	"Go-BoldItalic":    gobolditalic.TTF,
-	"sans-regular":     goregular.TTF,
+	"sans-regular":     goregular.TTF, // Will try DejaVuSans from assets first
 	"sans-bold":        gobold.TTF,
 	"sans-italic":      goitalic.TTF,
 	"sans-bolditalic":  gobolditalic.TTF,
@@ -38,6 +38,20 @@ var embeddedFonts = map[string][]byte{
 	"mono-bold":        gobold.TTF,
 	"mono-italic":      goitalic.TTF,
 	"mono-bolditalic":  gobolditalic.TTF,
+}
+
+// Fallback fonts for better Unicode support (especially CJK characters)
+// Priority order: CJK fonts first, then Latin fonts
+var fallbackFontPaths = []string{
+	// Try Windows system fonts for CJK support
+	"C:/Windows/Fonts/msyh.ttc",   // Microsoft YaHei (Simplified Chinese)
+	"C:/Windows/Fonts/msyhbd.ttc", // Microsoft YaHei Bold
+	"C:/Windows/Fonts/simsun.ttc", // SimSun (Simplified Chinese)
+	"C:/Windows/Fonts/simhei.ttf", // SimHei (Simplified Chinese)
+	"C:/Windows/Fonts/msjh.ttc",   // Microsoft JhengHei (Traditional Chinese)
+	// Local assets
+	"assets/DejaVuSans.ttf",
+	"resource/font/luxisr.ttf",
 }
 
 // LoadFontFromFile loads a font from a file path
@@ -81,6 +95,21 @@ func LoadEmbeddedFont(name string) (font.Face, []byte, error) {
 		return face, data, nil
 	}
 	fontCacheMu.RUnlock()
+
+	// For sans fonts, try fallback fonts first (better Unicode support)
+	if name == "sans-regular" || name == "sans" {
+		for _, fallbackPath := range fallbackFontPaths {
+			face, fontData, err := LoadFontFromFile(fallbackPath)
+			if err == nil {
+				// Cache with the requested name
+				fontCacheMu.Lock()
+				fontCache[name] = face
+				fontDataCache[name] = fontData
+				fontCacheMu.Unlock()
+				return face, fontData, nil
+			}
+		}
+	}
 
 	// Try loading from embedded fonts
 	data, ok := embeddedFonts[name]
