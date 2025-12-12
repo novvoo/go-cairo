@@ -108,16 +108,17 @@ func main() {
 			text := fmt.Sprintf("%d", num)
 			layout.SetText(text)
 			extents := layout.GetPixelExtents()
-			fontExtents := layout.GetFontExtents()
 
-			// 居中：x = x0 + (cellSize - width)/2
-			//      y = y0 + (cellSize + ascent - descent)/2 - ascent
-			// 即：基线位置 = y0 + cellSize/2 + (ascent - descent)/2
+			// 居中：使用文字边界框的实际高度来居中
 			centerX := x0 + cellSize/2
 			centerY := y0 + cellSize/2
 
-			// Pango 是基线对齐，需从视觉中心反推基线
-			baselineY := centerY + (fontExtents.Ascent-fontExtents.Descent)/2
+			// 计算基线位置：
+			// extents.Y 是负值（从基线向上的距离）
+			// extents.Height 是边界框的实际高度
+			// 单元格中心 - 文字视觉高度的一半 - extents.Y（调整到基线）
+			textVisualHeight := float64(extents.Height)
+			baselineY := centerY - textVisualHeight/2 - float64(extents.Y)
 
 			drawX := centerX - float64(extents.Width)/2 - float64(extents.X)
 			drawY := baselineY
@@ -162,14 +163,14 @@ func main() {
 		cx, cy := x0+cellSize/2, y0+cellSize/2
 		layout.SetText("5")
 		ext := layout.GetPixelExtents()
-		fe := layout.GetFontExtents()
-		baseline := cy + (fe.Ascent-fe.Descent)/2
+		textVisualHeight := float64(ext.Height)
+		baseline := cy - textVisualHeight/2 - float64(ext.Y)
 		drawX := cx - float64(ext.Width)/2 - float64(ext.X)
 		drawY := baseline
 
 		textCenterX := drawX + float64(ext.Width)/2
-		textTop := drawY - fe.Ascent
-		textBottom := drawY + fe.Descent
+		textTop := drawY + float64(ext.Y)
+		textBottom := textTop + float64(ext.Height)
 		textCenterY := (textTop + textBottom) / 2
 
 		dx, dy := math.Abs(cx-textCenterX), math.Abs(cy-textCenterY)

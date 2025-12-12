@@ -16,6 +16,18 @@ import (
 
 // getFontKey creates a lookup key for font cache
 func getFontKey(family string, slant FontSlant, weight FontWeight) string {
+	// Handle specific font families first
+	if family == "Go Regular" || family == "Go-Regular" || family == "Go" {
+		if weight == FontWeightBold && (slant == FontSlantItalic || slant == FontSlantOblique) {
+			return "Go-BoldItalic"
+		} else if weight == FontWeightBold {
+			return "Go-Bold"
+		} else if slant == FontSlantItalic || slant == FontSlantOblique {
+			return "Go-Italic"
+		}
+		return "Go-Regular"
+	}
+
 	familyKey := family
 	if family == "sans-serif" || family == "sans" {
 		familyKey = "sans"
@@ -648,11 +660,9 @@ func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
 	output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
 	// 2. Calculate extents from shaped output
-	// Scale factor from font matrix - but harfbuzz already accounts for this
-	// Fix: Remove incorrect unitsPerEm division
-	// sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
-	// sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
-	// unitsPerEm := float64(realFace.Upem())
+	// Scale factor from font matrix
+	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
 
 	// Calculate total advance and bounds
 	var totalAdvance fixed.Int26_6
@@ -665,17 +675,16 @@ func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
 		// Get glyph outline for bounds calculation
 		glyphData := realFace.GlyphData(api.GID(g.GlyphID))
 		if outline, ok := glyphData.(api.GlyphOutline); ok {
-			// Convert outline points to user space - harfbuzz already provides user space coordinates
+			// Convert outline points to user space and apply font matrix scaling
 			for _, seg := range outline.Segments {
 				for _, arg := range seg.Args {
-					// Fix 1: Remove incorrect unitsPerEm division - harfbuzz already provides user space coordinates
-					x := float64(arg.X) / 64.0
-					y := float64(arg.Y) / 64.0
+					// Convert from fixed point and apply font matrix scaling
+					x := float64(arg.X) / 64.0 * sx
+					y := float64(arg.Y) / 64.0 * sy
 
-					// Add glyph position
-					// Fix 1: Remove incorrect unitsPerEm division
-					x += float64(g.XOffset) / 64.0
-					y -= float64(g.YOffset) / 64.0 // Subtract because glyph offsets are in font coordinate system
+					// Add glyph position (also needs scaling)
+					x += float64(g.XOffset) / 64.0 * sx
+					y -= float64(g.YOffset) / 64.0 * sy // Subtract because glyph offsets are in font coordinate system
 
 					// For the first glyph, initialize bounds
 					if firstGlyph {
@@ -701,12 +710,11 @@ func (s *scaledFont) TextExtents(utf8 string) *TextExtents {
 		}
 	}
 
-	// Convert to user space units
-	// Fix 1: Remove incorrect unitsPerEm division
-	ext.XAdvance = float64(totalAdvance) / 64.0
+	// Convert to user space units and apply font matrix scaling
+	ext.XAdvance = float64(totalAdvance) / 64.0 * sx
 	ext.YAdvance = 0
 
-	// Set proper width and height based on actual bounds
+	// Set proper width and height based on actual bounds (already scaled above)
 	ext.Width = maxX - minX
 	ext.Height = maxY - minY
 	ext.XBearing = minX
@@ -775,30 +783,23 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 		Data:   make([]PathData, 0),
 	}
 
-	// Scale factor from font matrix - but harfbuzz already accounts for this
-	// Fix: Remove incorrect sx/sy calculation and unitsPerEm division
-	// sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
-	// sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
-	// unitsPerEm := float64(realFace.Upem())
+	// Scale factor from font matrix
+	sx := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	sy := math.Hypot(s.fontMatrix.XY, s.fontMatrix.YY)
 
 	// Check if we need to flip the Y axis based on the font matrix
 	// Font glyphs are designed for Y growing upward, but our coordinate system has Y growing downward.
 	// Since we now use positive Y scale in font matrix, we always need to flip.
 	flipY := true
 
-	// FUnits to user space: FUnits * (scale / unitsPerEm) - not needed anymore
-	// funitToUser := func(f float32, scale float64) float64 {
-	// 	return float64(f) * scale / unitsPerEm
-	// }
-
 	// Iterate over the path segments
 	var pathPoints []Point
 	for _, seg := range outline.Segments {
 		switch seg.Op {
 		case api.SegmentOpMoveTo:
-			// Fix 1: Remove incorrect unitsPerEm division
-			x := float64(seg.Args[0].X) / 64.0
-			y := float64(seg.Args[0].Y) / 64.0
+			// Convert from fixed point and apply font matrix scaling
+			x := float64(seg.Args[0].X) / 64.0 * sx
+			y := float64(seg.Args[0].Y) / 64.0 * sy
 			// Apply Y flip if needed
 			if flipY {
 				y = -y
@@ -806,9 +807,9 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 			point := Point{X: x, Y: y}
 			pathPoints = append(pathPoints, point)
 		case api.SegmentOpLineTo:
-			// Fix 1: Remove incorrect unitsPerEm division
-			x := float64(seg.Args[0].X) / 64.0
-			y := float64(seg.Args[0].Y) / 64.0
+			// Convert from fixed point and apply font matrix scaling
+			x := float64(seg.Args[0].X) / 64.0 * sx
+			y := float64(seg.Args[0].Y) / 64.0 * sy
 			// Apply Y flip if needed
 			if flipY {
 				y = -y
@@ -817,12 +818,11 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 			pathPoints = append(pathPoints, point)
 		case api.SegmentOpQuadTo:
 			// Convert quadratic to cubic Bezier
-			// For simplicity, we'll add the control point and end point
-			// Fix 1: Remove incorrect unitsPerEm division
-			x1 := float64(seg.Args[0].X) / 64.0
-			y1 := float64(seg.Args[0].Y) / 64.0
-			x2 := float64(seg.Args[1].X) / 64.0
-			y2 := float64(seg.Args[1].Y) / 64.0
+			// Convert from fixed point and apply font matrix scaling
+			x1 := float64(seg.Args[0].X) / 64.0 * sx
+			y1 := float64(seg.Args[0].Y) / 64.0 * sy
+			x2 := float64(seg.Args[1].X) / 64.0 * sx
+			y2 := float64(seg.Args[1].Y) / 64.0 * sy
 			// Apply Y flip if needed
 			if flipY {
 				y1 = -y1
@@ -832,13 +832,13 @@ func (s *scaledFont) GlyphPath(glyphID uint64) (*Path, error) {
 			p2 := Point{X: x2, Y: y2}
 			pathPoints = append(pathPoints, p1, p1, p2)
 		case api.SegmentOpCubeTo:
-			// Fix 1: Remove incorrect unitsPerEm division
-			x1 := float64(seg.Args[0].X) / 64.0
-			y1 := float64(seg.Args[0].Y) / 64.0
-			x2 := float64(seg.Args[1].X) / 64.0
-			y2 := float64(seg.Args[1].Y) / 64.0
-			x3 := float64(seg.Args[2].X) / 64.0
-			y3 := float64(seg.Args[2].Y) / 64.0
+			// Convert from fixed point and apply font matrix scaling
+			x1 := float64(seg.Args[0].X) / 64.0 * sx
+			y1 := float64(seg.Args[0].Y) / 64.0 * sy
+			x2 := float64(seg.Args[1].X) / 64.0 * sx
+			y2 := float64(seg.Args[1].Y) / 64.0 * sy
+			x3 := float64(seg.Args[2].X) / 64.0 * sx
+			y3 := float64(seg.Args[2].Y) / 64.0 * sy
 			// Apply Y flip if needed
 			if flipY {
 				y1 = -y1
@@ -1088,19 +1088,23 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 		return s.toyTextToGlyphsFallback(x, y, utf8)
 	}
 
-	// 1. Shape the text
-	runes := []rune(utf8)
-	input := shaping.Input{
-		Text:      runes,
-		RunStart:  0,
-		RunEnd:    len(runes),
-		Direction: di.DirectionLTR,
-		Face:      realFace,
-		Size:      fixed.I(12),
+	// Get font size from font matrix
+	fontSize := math.Hypot(s.fontMatrix.XX, s.fontMatrix.YX)
+	if fontSize == 0 {
+		fontSize = 12.0
 	}
-	output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
-	// 2. Convert shaped output to cairo's Glyph and TextCluster structures
+	// Get font metrics for line height calculation
+	metrics, _ := realFace.FontHExtents()
+	ascentFUnits := float64(metrics.Ascender)
+	descentFUnits := float64(metrics.Descender)
+	lineGapFUnits := float64(metrics.LineGap)
+
+	// Calculate line height in user space units
+	lineHeight := (ascentFUnits - descentFUnits + lineGapFUnits) / 64.0
+	if lineHeight <= 0 {
+		lineHeight = fontSize * 1.2 // Fallback to 120% of font size
+	}
 
 	// Get the CTM (Current Transformation Matrix)
 	ctm := s.GetCTM()
@@ -1109,47 +1113,77 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 	transformedX := ctm.XX*x + ctm.XY*y + ctm.X0
 	transformedY := ctm.YX*x + ctm.YY*y + ctm.Y0
 
-	// Glyphs
-	glyphs = make([]Glyph, len(output.Glyphs))
-	var curX, curY float64
+	// Split text into lines, supporting different line ending styles
+	// \r\n (Windows), \n (Unix/Linux/macOS), \r (old Mac)
+	lines := splitLines(utf8)
 
-	// Process each glyph with proper spacing
-	for i, g := range output.Glyphs {
-		// Position is in user space, relative to the start point (x, y)
-		// Fix 1: Remove incorrect unitsPerEm division - harfbuzz already provides user space coordinates
-		// Fix 2: Remove incorrect sx/sy calculation - harfbuzz already accounts for font matrix
-		glyphs[i] = Glyph{
-			Index: uint64(g.GlyphID),
-			X:     transformedX + curX + float64(g.XOffset)/64.0,
-			Y:     transformedY + curY - float64(g.YOffset)/64.0, // Subtract because glyph offsets are in font coordinate system
+	// Process each line separately
+	glyphs = make([]Glyph, 0)
+	clusters = make([]TextCluster, 0)
+	var curY float64
+
+	for lineIdx, line := range lines {
+		if line == "" {
+			// Empty line, just advance Y
+			curY += lineHeight
+			continue
 		}
 
-		// Add the advance width for the next glyph
-		// Fix 1: Remove incorrect unitsPerEm division
-		advance := float64(g.XAdvance) / 64.0
-		curX += advance
+		// 1. Shape the text
+		runes := []rune(line)
+		input := shaping.Input{
+			Text:      runes,
+			RunStart:  0,
+			RunEnd:    len(runes),
+			Direction: di.DirectionLTR,
+			Face:      realFace,
+			Size:      fixed.I(int(fontSize)),
+		}
+		output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
-		// Add kerning between characters if this is not the last glyph
-		if i < len(output.Glyphs)-1 {
-			// Get kerning adjustment between current and next glyph
-			kerning, kernStatus := s.GetKerning(runes[i], runes[i+1])
-			// Only apply kerning if successfully obtained
-			if kernStatus == StatusSuccess {
-				curX += kerning
+		// 2. Convert shaped output to cairo's Glyph and TextCluster structures
+		var curX float64
+
+		// Process each glyph with proper spacing
+		for glyphIdx, g := range output.Glyphs {
+			// Position is in user space, relative to the start point (x, y)
+			glyph := Glyph{
+				Index: uint64(g.GlyphID),
+				X:     transformedX + curX + float64(g.XOffset)/64.0,
+				Y:     transformedY + curY - float64(g.YOffset)/64.0, // Subtract because glyph offsets are in font coordinate system
 			}
+			glyphs = append(glyphs, glyph)
+
+			// Add the advance width for the next glyph
+			advance := float64(g.XAdvance) / 64.0
+			curX += advance
+
+			// Add kerning between characters if this is not the last glyph
+			if glyphIdx < len(runes)-1 {
+				// Get kerning adjustment between current and next glyph
+				kerning, kernStatus := s.GetKerning(runes[glyphIdx], runes[glyphIdx+1])
+				// Only apply kerning if successfully obtained
+				if kernStatus == StatusSuccess {
+					curX += kerning
+				}
+			}
+
+			// Add vertical advance
+			curY += float64(g.YAdvance) / 64.0
 		}
 
-		// Add vertical advance
-		// Fix 1: Remove incorrect unitsPerEm division
-		curY += float64(g.YAdvance) / 64.0
-	}
+		// Create clusters for this line
+		for range output.Glyphs {
+			cluster := TextCluster{
+				NumBytes:  1, // Simplified: assume 1 byte per glyph
+				NumGlyphs: 1,
+			}
+			clusters = append(clusters, cluster)
+		}
 
-	// Clusters - simplified mapping (one cluster per glyph)
-	clusters = make([]TextCluster, len(output.Glyphs))
-	for i := range output.Glyphs {
-		clusters[i] = TextCluster{
-			NumBytes:  1, // Simplified: assume 1 byte per glyph
-			NumGlyphs: 1,
+		// Move to next line (reset X, advance Y)
+		if lineIdx < len(lines)-1 {
+			curY += lineHeight
 		}
 	}
 
@@ -1157,6 +1191,48 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 	clusterFlags = 0
 
 	return glyphs, clusters, clusterFlags, StatusSuccess
+}
+
+// splitLines splits text into lines, handling different line ending styles
+// Supports: \r\n (Windows), \n (Unix/Linux/macOS), \r (old Mac)
+func splitLines(text string) []string {
+	if text == "" {
+		return []string{""}
+	}
+
+	lines := make([]string, 0)
+	var currentLine strings.Builder
+	runes := []rune(text)
+
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+
+		if r == '\r' {
+			// Check if next character is \n (Windows style \r\n)
+			if i+1 < len(runes) && runes[i+1] == '\n' {
+				// Windows line ending \r\n
+				lines = append(lines, currentLine.String())
+				currentLine.Reset()
+				i++ // Skip the \n
+			} else {
+				// Old Mac style \r
+				lines = append(lines, currentLine.String())
+				currentLine.Reset()
+			}
+		} else if r == '\n' {
+			// Unix/Linux/macOS line ending \n
+			lines = append(lines, currentLine.String())
+			currentLine.Reset()
+		} else {
+			// Regular character
+			currentLine.WriteRune(r)
+		}
+	}
+
+	// Add the last line (even if empty)
+	lines = append(lines, currentLine.String())
+
+	return lines
 }
 
 // toyTextToGlyphsFallback performs a trivial Unicode->glyph mapping similar to

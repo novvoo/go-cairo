@@ -52,14 +52,18 @@ func main() {
 	mExtents := layout.GetPixelExtents()
 	layout.SetText("I")
 	iExtents := layout.GetPixelExtents()
-	
+
 	letterSpacing := 8.0
 	totalWidth := mExtents.Width + iExtents.Width + letterSpacing
 
 	// 计算居中位置
-	fontExtents := layout.GetFontExtents()
 	midx := rectX + rectWidth/2 - totalWidth/2
-	midy := rectY + rectHeight/2 + fontExtents.Ascent/2 - fontExtents.Descent/2
+	// 垂直居中：使用文字边界框的实际高度来居中
+	// mExtents.Y 是负值（从基线向上的距离）
+	// mExtents.Height 是边界框的实际高度
+	textVisualHeight := mExtents.Height
+	// 矩形中心 - 文字视觉高度的一半 - mExtents.Y（调整到基线）
+	midy := rectY + rectHeight/2 - textVisualHeight/2 - mExtents.Y
 
 	// 渲染 M
 	layout.SetText("M")

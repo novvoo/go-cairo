@@ -1371,44 +1371,77 @@ func (s *PangoCairoScaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs [
 		fontSize = 12.0 // Default fallback
 	}
 
-	// 1. Shape the text with the correct font size
-	// fixed.I() converts an integer to 26.6 fixed point format
-	runes := []rune(utf8)
-	input := shaping.Input{
-		Text:      runes,
-		RunStart:  0,
-		RunEnd:    len(runes),
-		Direction: di.DirectionLTR,
-		Face:      realFace,
-		Size:      fixed.I(int(fontSize)), // Convert to 26.6 fixed point
+	// Get font metrics for line height calculation
+	metrics, _ := realFace.FontHExtents()
+	ascentFUnits := float64(metrics.Ascender)
+	descentFUnits := float64(metrics.Descender)
+	lineGapFUnits := float64(metrics.LineGap)
+
+	// Calculate line height in user space units
+	lineHeight := (ascentFUnits - descentFUnits + lineGapFUnits) / 64.0
+	if lineHeight <= 0 {
+		lineHeight = fontSize * 1.2 // Fallback to 120% of font size
 	}
-	output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
-	// 2. Convert shaped output to cairo's Glyph and TextCluster structures
-	glyphs = make([]Glyph, len(output.Glyphs))
-	var curX, curY float64
+	// Split text into lines, supporting different line ending styles
+	// \r\n (Windows), \n (Unix/Linux/macOS), \r (old Mac)
+	lines := splitLines(utf8)
 
-	// Process each glyph with proper spacing
-	for i, g := range output.Glyphs {
-		// Position is in user space, relative to the start point (x, y)
-		glyphs[i] = Glyph{
-			Index: uint64(g.GlyphID),
-			X:     x + curX + float64(g.XOffset)/64.0,
-			Y:     y + curY - float64(g.YOffset)/64.0, // Subtract because glyph offsets are in font coordinate system
+	// Process each line separately
+	glyphs = make([]Glyph, 0)
+	clusters = make([]TextCluster, 0)
+	var curY float64
+
+	for lineIdx, line := range lines {
+		if line == "" {
+			// Empty line, just advance Y
+			curY += lineHeight
+			continue
 		}
 
-		// Add the advance width for the next glyph
-		// The shaper returns advances in 26.6 fixed point format
-		curX += float64(g.XAdvance) / 64.0
-		curY += float64(g.YAdvance) / 64.0
-	}
+		// 1. Shape the text with the correct font size
+		// fixed.I() converts an integer to 26.6 fixed point format
+		runes := []rune(line)
+		input := shaping.Input{
+			Text:      runes,
+			RunStart:  0,
+			RunEnd:    len(runes),
+			Direction: di.DirectionLTR,
+			Face:      realFace,
+			Size:      fixed.I(int(fontSize)), // Convert to 26.6 fixed point
+		}
+		output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
-	// Clusters - simplified mapping (one cluster per glyph)
-	clusters = make([]TextCluster, len(output.Glyphs))
-	for i := range output.Glyphs {
-		clusters[i] = TextCluster{
-			NumBytes:  1, // Simplified: assume 1 byte per glyph
-			NumGlyphs: 1,
+		// 2. Convert shaped output to cairo's Glyph and TextCluster structures
+		var curX float64
+
+		// Process each glyph with proper spacing
+		for _, g := range output.Glyphs {
+			// Position is in user space, relative to the start point (x, y)
+			glyph := Glyph{
+				Index: uint64(g.GlyphID),
+				X:     x + curX + float64(g.XOffset)/64.0,
+				Y:     y + curY - float64(g.YOffset)/64.0, // Subtract because glyph offsets are in font coordinate system
+			}
+			glyphs = append(glyphs, glyph)
+
+			// Add the advance width for the next glyph
+			// The shaper returns advances in 26.6 fixed point format
+			curX += float64(g.XAdvance) / 64.0
+		}
+
+		// Create clusters for this line
+		for range output.Glyphs {
+			cluster := TextCluster{
+				NumBytes:  1, // Simplified: assume 1 byte per glyph
+				NumGlyphs: 1,
+			}
+			clusters = append(clusters, cluster)
+		}
+
+		// Move to next line (reset X, advance Y)
+		if lineIdx < len(lines)-1 {
+			curY += lineHeight
 		}
 	}
 
