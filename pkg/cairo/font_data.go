@@ -43,12 +43,22 @@ var embeddedFonts = map[string][]byte{
 // Fallback fonts for better Unicode support (especially CJK characters)
 // Priority order: CJK fonts first, then Latin fonts
 var fallbackFontPaths = []string{
-	// Try Windows system fonts for CJK support
+	// macOS system fonts for CJK support
+	"/System/Library/Fonts/PingFang.ttc",                    // PingFang SC (Simplified Chinese)
+	"/System/Library/Fonts/Hiragino Sans GB.ttc",            // Hiragino Sans GB
+	"/System/Library/Fonts/STHeiti Light.ttc",               // STHeiti
+	"/System/Library/Fonts/Supplemental/Songti.ttc",         // Songti SC
+	"/System/Library/Fonts/Supplemental/Arial Unicode.ttf",  // Arial Unicode MS
+	// Windows system fonts for CJK support
 	"C:/Windows/Fonts/msyh.ttc",   // Microsoft YaHei (Simplified Chinese)
 	"C:/Windows/Fonts/msyhbd.ttc", // Microsoft YaHei Bold
 	"C:/Windows/Fonts/simsun.ttc", // SimSun (Simplified Chinese)
 	"C:/Windows/Fonts/simhei.ttf", // SimHei (Simplified Chinese)
 	"C:/Windows/Fonts/msjh.ttc",   // Microsoft JhengHei (Traditional Chinese)
+	// Linux system fonts for CJK support
+	"/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+	"/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+	"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
 	// Local assets
 	"assets/DejaVuSans.ttf",
 	"resource/font/luxisr.ttf",

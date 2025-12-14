@@ -513,8 +513,8 @@ type SurfacePattern interface {
 
 type GradientPattern interface {
 	Pattern
-	AddColorStopRGB(offset, red, green, blue float64)
-	AddColorStopRGBA(offset, red, green, blue, alpha float64)
+	AddColorStopRGB(offset, red, green, blue float64) Status
+	AddColorStopRGBA(offset, red, green, blue, alpha float64) Status
 	GetColorStopCount() int
 	GetColorStop(index int) (offset, red, green, blue, alpha float64, status Status)
 }

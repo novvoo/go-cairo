@@ -761,6 +761,39 @@ func (c *context) applyStateToPango() {
 	})
 
 	// Source pattern
+	// Check for gradient patterns first (using concrete types)
+	if pattern, ok := c.gstate.source.(*linearGradient); ok {
+		// Set gradient pattern for raster context
+		c.gc.SetGradientPattern(pattern)
+		// Use middle color as fallback for stroke
+		if pattern.GetColorStopCount() > 0 {
+			_, r, g, b, a, _ := pattern.GetColorStop(0)
+			c.gc.SetStrokeColor(color.NRGBA{
+				R: uint8(r * 255),
+				G: uint8(g * 255),
+				B: uint8(b * 255),
+				A: uint8(a * 255),
+			})
+		}
+		return
+	}
+	
+	if pattern, ok := c.gstate.source.(*radialGradient); ok {
+		// Set gradient pattern for raster context
+		c.gc.SetGradientPattern(pattern)
+		// Use middle color as fallback for stroke
+		if pattern.GetColorStopCount() > 0 {
+			_, r, g, b, a, _ := pattern.GetColorStop(0)
+			c.gc.SetStrokeColor(color.NRGBA{
+				R: uint8(r * 255),
+				G: uint8(g * 255),
+				B: uint8(b * 255),
+				A: uint8(a * 255),
+			})
+		}
+		return
+	}
+	
 	switch pattern := c.gstate.source.(type) {
 	case SolidPattern:
 		r, g, b, a := pattern.GetRGBA()
@@ -777,16 +810,6 @@ func (c *context) applyStateToPango() {
 
 		fontSize := math.Hypot(c.gstate.fontMatrix.XX, c.gstate.fontMatrix.YX)
 		c.gc.SetFontSize(fontSize)
-	case LinearGradientPattern:
-		// Gradient patterns are complex and not fully supported
-		// For now, use a solid color approximation
-		c.gc.SetFillColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
-		c.gc.SetStrokeColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
-	case RadialGradientPattern:
-		// Gradient patterns are complex and not fully supported
-		// For now, use a solid color approximation
-		c.gc.SetFillColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
-		c.gc.SetStrokeColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
 	case SurfacePattern:
 		// Surface patterns are complex and not fully supported
 		// For now, use a solid color approximation

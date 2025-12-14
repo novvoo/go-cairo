@@ -78,7 +78,7 @@ func main() {
 
 	// 保存图片
 	wd, _ := os.Getwd()
-	filename := filepath.Join(wd, "test", "newline_test.png")
+	filename := filepath.Join(wd, "newline_test.png")
 	fmt.Printf("保存路径: %s\n", filename)
 
 	if imageSurface, ok := surface.(cairo.ImageSurface); ok {

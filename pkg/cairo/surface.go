@@ -232,7 +232,7 @@ func (s *imageSurface) createGoImage() {
 	s.goImage = s.rgbaImage
 }
 
-// syncARGBData synchronizes RGBA data back to ARGB format
+// syncARGBData synchronizes RGBA data back to ARGB format with premultiplied alpha
 // This is used when the RGBA buffer has been modified and needs to be synced back
 func (s *imageSurface) syncARGBData() {
 	if s.rgbaImage == nil || s.format != FormatARGB32 {
@@ -246,10 +246,29 @@ func (s *imageSurface) syncARGBData() {
 		argbPtr := s.data[argbOff:]
 		for x := 0; x < s.width; x++ {
 			i := x * 4
-			argbPtr[i+0] = rgbaPtr[i+3] // A <- A
-			argbPtr[i+1] = rgbaPtr[i+0] // R <- R
-			argbPtr[i+2] = rgbaPtr[i+1] // G <- G
-			argbPtr[i+3] = rgbaPtr[i+2] // B <- B
+			r := rgbaPtr[i+0]
+			g := rgbaPtr[i+1]
+			b := rgbaPtr[i+2]
+			a := rgbaPtr[i+3]
+			
+			// Convert to premultiplied alpha (Cairo's native format)
+			if a == 0 {
+				argbPtr[i+0] = 0
+				argbPtr[i+1] = 0
+				argbPtr[i+2] = 0
+				argbPtr[i+3] = 0
+			} else if a == 255 {
+				argbPtr[i+0] = a
+				argbPtr[i+1] = r
+				argbPtr[i+2] = g
+				argbPtr[i+3] = b
+			} else {
+				// Premultiply: color = color * alpha / 255
+				argbPtr[i+0] = a
+				argbPtr[i+1] = uint8((uint32(r) * uint32(a)) / 255)
+				argbPtr[i+2] = uint8((uint32(g) * uint32(a)) / 255)
+				argbPtr[i+3] = uint8((uint32(b) * uint32(a)) / 255)
+			}
 		}
 	}
 }
@@ -317,10 +336,12 @@ func (s *baseSurface) Flush() error {
 
 func (s *baseSurface) MarkDirty() {
 	// Default implementation does nothing
+	// Image surfaces override this method
 }
 
 func (s *baseSurface) MarkDirtyRectangle(x, y, width, height int) {
 	// Default implementation does nothing
+	// Image surfaces override this method
 }
 
 func (s *baseSurface) GetFontOptions() *FontOptions {
@@ -427,6 +448,16 @@ func (s *imageSurface) Reference() Surface {
 	return s
 }
 
+// MarkDirty converts from premultiplied to non-premultiplied alpha
+func (s *imageSurface) MarkDirty() {
+	s.unpremultiplyAlpha()
+}
+
+// MarkDirtyRectangle converts a rectangle from premultiplied to non-premultiplied alpha
+func (s *imageSurface) MarkDirtyRectangle(x, y, width, height int) {
+	s.unpremultiplyAlphaRect(x, y, width, height)
+}
+
 // Image surface specific methods
 
 func (s *imageSurface) GetData() []byte {
@@ -451,6 +482,117 @@ func (s *imageSurface) GetFormat() Format {
 
 func (s *imageSurface) GetGoImage() image.Image {
 	return s.goImage
+}
+
+// unpremultiplyAlpha converts the entire surface from premultiplied to non-premultiplied alpha
+func (s *imageSurface) unpremultiplyAlpha() {
+	if s.format != FormatARGB32 {
+		return
+	}
+	s.unpremultiplyAlphaRect(0, 0, s.width, s.height)
+}
+
+// unpremultiplyAlphaRect converts a rectangle from premultiplied to non-premultiplied alpha
+func (s *imageSurface) unpremultiplyAlphaRect(x, y, width, height int) {
+	if s.format != FormatARGB32 || s.rgbaImage == nil {
+		return
+	}
+	
+	// Clamp to surface bounds
+	if x < 0 {
+		width += x
+		x = 0
+	}
+	if y < 0 {
+		height += y
+		y = 0
+	}
+	if x+width > s.width {
+		width = s.width - x
+	}
+	if y+height > s.height {
+		height = s.height - y
+	}
+	if width <= 0 || height <= 0 {
+		return
+	}
+	
+	stride := s.stride
+	for row := y; row < y+height; row++ {
+		argbOff := row*stride + x*4
+		rgbaOff := row*stride + x*4
+		argbPtr := s.data[argbOff:]
+		rgbaPtr := s.rgbaData[rgbaOff:]
+		
+		for col := 0; col < width; col++ {
+			i := col * 4
+			a := argbPtr[i+0]
+			r := argbPtr[i+1]
+			g := argbPtr[i+2]
+			b := argbPtr[i+3]
+			
+			// Convert from premultiplied to non-premultiplied alpha
+			if a == 0 {
+				rgbaPtr[i+0] = 0
+				rgbaPtr[i+1] = 0
+				rgbaPtr[i+2] = 0
+				rgbaPtr[i+3] = 0
+			} else if a == 255 {
+				rgbaPtr[i+0] = r
+				rgbaPtr[i+1] = g
+				rgbaPtr[i+2] = b
+				rgbaPtr[i+3] = a
+			} else {
+				// Unpremultiply: color = color * 255 / alpha
+				rgbaPtr[i+0] = uint8((uint32(r) * 255) / uint32(a))
+				rgbaPtr[i+1] = uint8((uint32(g) * 255) / uint32(a))
+				rgbaPtr[i+2] = uint8((uint32(b) * 255) / uint32(a))
+				rgbaPtr[i+3] = a
+			}
+		}
+	}
+}
+
+// premultiplyAlpha converts the entire surface from non-premultiplied to premultiplied alpha
+func (s *imageSurface) premultiplyAlpha() {
+	if s.format != FormatARGB32 || s.rgbaImage == nil {
+		return
+	}
+	
+	stride := s.stride
+	for y := 0; y < s.height; y++ {
+		rgbaOff := y * stride
+		argbOff := y * stride
+		rgbaPtr := s.rgbaData[rgbaOff:]
+		argbPtr := s.data[argbOff:]
+		
+		for x := 0; x < s.width; x++ {
+			i := x * 4
+			r := rgbaPtr[i+0]
+			g := rgbaPtr[i+1]
+			b := rgbaPtr[i+2]
+			a := rgbaPtr[i+3]
+			
+			// Convert to premultiplied alpha
+			if a == 0 {
+				argbPtr[i+0] = 0
+				argbPtr[i+1] = 0
+				argbPtr[i+2] = 0
+				argbPtr[i+3] = 0
+			} else if a == 255 {
+				argbPtr[i+0] = a
+				argbPtr[i+1] = r
+				argbPtr[i+2] = g
+				argbPtr[i+3] = b
+			} else {
+				// Premultiply: color = color * alpha / 255
+				argbPtr[i+0] = a
+				argbPtr[i+1] = uint8((uint32(r) * uint32(a)) / 255)
+				argbPtr[i+2] = uint8((uint32(g) * uint32(a)) / 255)
+				argbPtr[i+3] = uint8((uint32(b) * uint32(a)) / 255)
+			}
+		}
+	}
 }
 
 // WriteToPNG writes the surface to a PNG file
