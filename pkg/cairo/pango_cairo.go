@@ -1359,6 +1359,11 @@ func (s *PangoCairoScaledFont) GetGlyphs(utf8 string) (glyphs []Glyph, status St
 
 // TextToGlyphs performs text shaping to get accurate glyphs and clusters.
 func (s *PangoCairoScaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status) {
+	return s.TextToGlyphsWithOptions(x, y, utf8, nil)
+}
+
+// TextToGlyphsWithOptions performs text shaping with advanced OpenType features
+func (s *PangoCairoScaledFont) TextToGlyphsWithOptions(x, y float64, utf8 string, options *ShapingOptions) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status) {
 	realFace, status := s.getRealFace()
 	if status != StatusSuccess {
 		return s.toyTextToGlyphsFallback(x, y, utf8)
@@ -1383,6 +1388,22 @@ func (s *PangoCairoScaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs [
 		lineHeight = fontSize * 1.2 // Fallback to 120% of font size
 	}
 
+	// Use default options if not provided
+	if options == nil {
+		options = NewShapingOptions()
+	}
+
+	// Auto-detect missing options
+	if options.Direction == TextDirectionAuto {
+		options.Direction = DetectTextDirection(utf8)
+	}
+	if options.Language == "" {
+		options.Language = DetectLanguage(utf8)
+	}
+	if options.Script == "" {
+		options.Script = DetectScript(utf8)
+	}
+
 	// Split text into lines, supporting different line ending styles
 	// \r\n (Windows), \n (Unix/Linux/macOS), \r (old Mac)
 	lines := splitLines(utf8)
@@ -1399,16 +1420,18 @@ func (s *PangoCairoScaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs [
 			continue
 		}
 
-		// 1. Shape the text with the correct font size
+		// 1. Shape the text with advanced options
 		// fixed.I() converts an integer to 26.6 fixed point format
 		runes := []rune(line)
 		input := shaping.Input{
 			Text:      runes,
 			RunStart:  0,
 			RunEnd:    len(runes),
-			Direction: di.DirectionLTR,
+			Direction: convertDirection(options.Direction, line),
 			Face:      realFace,
 			Size:      fixed.I(int(fontSize)), // Convert to 26.6 fixed point
+			Language:  convertLanguage(options.Language),
+			Script:    convertScript(options.Script),
 		}
 		output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
@@ -1529,6 +1552,26 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 	if status != StatusSuccess {
 		ctx.(*context).status = status
 		return
+	}
+
+	// Apply alignment adjustments
+	if layout.align != PangoAlignLeft && layout.width > 0 {
+		// Calculate text width
+		textExtents := sf.TextExtents(layout.GetText())
+		layoutWidth := float64(layout.width) / 1024.0 // Convert from Pango units
+		
+		var offsetX float64
+		switch layout.align {
+		case PangoAlignRight:
+			offsetX = layoutWidth - textExtents.Width
+		case PangoAlignCenter:
+			offsetX = (layoutWidth - textExtents.Width) / 2
+		}
+		
+		// Adjust all glyph positions
+		for i := range glyphs {
+			glyphs[i].X += offsetX
+		}
 	}
 
 	// Render glyphs directly to surface using PangoCairo

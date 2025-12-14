@@ -1083,6 +1083,11 @@ func (s *scaledFont) GetGlyphs(utf8 string) (glyphs []Glyph, status Status) {
 
 // TextToGlyphs performs text shaping to get accurate glyphs and clusters.
 func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status) {
+	return s.TextToGlyphsWithOptions(x, y, utf8, nil)
+}
+
+// TextToGlyphsWithOptions performs text shaping with advanced OpenType features
+func (s *scaledFont) TextToGlyphsWithOptions(x, y float64, utf8 string, options *ShapingOptions) (glyphs []Glyph, clusters []TextCluster, clusterFlags TextClusterFlags, status Status) {
 	realFace, status := s.getRealFace()
 	if status != StatusSuccess {
 		return s.toyTextToGlyphsFallback(x, y, utf8)
@@ -1113,6 +1118,22 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 	transformedX := ctm.XX*x + ctm.XY*y + ctm.X0
 	transformedY := ctm.YX*x + ctm.YY*y + ctm.Y0
 
+	// Use default options if not provided
+	if options == nil {
+		options = NewShapingOptions()
+	}
+
+	// Auto-detect missing options
+	if options.Direction == TextDirectionAuto {
+		options.Direction = DetectTextDirection(utf8)
+	}
+	if options.Language == "" {
+		options.Language = DetectLanguage(utf8)
+	}
+	if options.Script == "" {
+		options.Script = DetectScript(utf8)
+	}
+
 	// Split text into lines, supporting different line ending styles
 	// \r\n (Windows), \n (Unix/Linux/macOS), \r (old Mac)
 	lines := splitLines(utf8)
@@ -1129,15 +1150,17 @@ func (s *scaledFont) TextToGlyphs(x, y float64, utf8 string) (glyphs []Glyph, cl
 			continue
 		}
 
-		// 1. Shape the text
+		// 1. Shape the text with advanced options
 		runes := []rune(line)
 		input := shaping.Input{
 			Text:      runes,
 			RunStart:  0,
 			RunEnd:    len(runes),
-			Direction: di.DirectionLTR,
+			Direction: convertDirection(options.Direction, line),
 			Face:      realFace,
 			Size:      fixed.I(int(fontSize)),
+			Language:  convertLanguage(options.Language),
+			Script:    convertScript(options.Script),
 		}
 		output := (&shaping.HarfbuzzShaper{}).Shape(input)
 
