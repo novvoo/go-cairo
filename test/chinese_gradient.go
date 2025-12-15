@@ -39,9 +39,9 @@ func main() {
 
 	pattern1 := cairo.NewPatternLinear(textX, textY-extents.Height, textX+extents.Width, textY)
 	if gradPat, ok := pattern1.(cairo.LinearGradientPattern); ok {
-		gradPat.AddColorStopRGB(0, 1, 0.3, 0.3)   // 红
-		gradPat.AddColorStopRGB(0.5, 1, 1, 0.3)   // 黄
-		gradPat.AddColorStopRGB(1, 0.3, 1, 0.3)   // 绿
+		gradPat.AddColorStopRGB(0, 1, 0.3, 0.3) // 红
+		gradPat.AddColorStopRGB(0.5, 1, 1, 0.3) // 黄
+		gradPat.AddColorStopRGB(1, 0.3, 1, 0.3) // 绿
 	}
 	ctx.SetSource(pattern1)
 	ctx.MoveTo(textX, textY)
@@ -61,8 +61,8 @@ func main() {
 
 	pattern2 := cairo.NewPatternLinear(textX, textY-extents.Height, textX, textY)
 	if gradPat, ok := pattern2.(cairo.LinearGradientPattern); ok {
-		gradPat.AddColorStopRGB(0, 0.3, 0.8, 1)   // 亮蓝
-		gradPat.AddColorStopRGB(1, 0.5, 0.3, 1)   // 紫
+		gradPat.AddColorStopRGB(0, 0.3, 0.8, 1) // 亮蓝
+		gradPat.AddColorStopRGB(1, 0.5, 0.3, 1) // 紫
 	}
 	ctx.SetSource(pattern2)
 	ctx.MoveTo(textX, textY)
@@ -83,10 +83,10 @@ func main() {
 
 	y := 230.0
 	colors := [][3]float64{
-		{1, 0.3, 0.3},   // 红
-		{1, 0.8, 0.3},   // 橙
-		{0.3, 1, 0.3},   // 绿
-		{0.3, 0.5, 1},   // 蓝
+		{1, 0.3, 0.3}, // 红
+		{1, 0.8, 0.3}, // 橙
+		{0.3, 1, 0.3}, // 绿
+		{0.3, 0.5, 1}, // 蓝
 	}
 
 	for i, text := range texts {
@@ -112,7 +112,7 @@ func main() {
 	fmt.Println("📊 测试4: 中英混合 - 对角渐变")
 	fontDesc.SetSize(28)
 	layout.SetFontDescription(fontDesc)
-	layout.SetText("Hello 世界 • 你好 World")
+	layout.SetText("Hello 世界 · 你好 World")
 
 	extents = layout.GetPixelExtents()
 	textX = 500.0
@@ -131,7 +131,7 @@ func main() {
 
 	// 测试5: 径向渐变背景 + 中文
 	fmt.Println("⭕ 测试5: 径向渐变背景 + 中文")
-	
+
 	// 绘制径向渐变圆形背景
 	pattern5bg := cairo.NewPatternRadial(500, 480, 0, 500, 480, 150)
 	if gradPat, ok := pattern5bg.(cairo.RadialGradientPattern); ok {
@@ -170,7 +170,7 @@ func main() {
 	fontDesc.SetSize(40)
 	fontDesc.SetWeight(cairo.PangoWeightNormal)
 	layout.SetFontDescription(fontDesc)
-	layout.SetText("2024年 • 新年快乐")
+	layout.SetText("2024年 · 新年快乐")
 
 	extents = layout.GetPixelExtents()
 	textX = 500.0 - extents.Width/2
@@ -178,11 +178,11 @@ func main() {
 
 	pattern6 := cairo.NewPatternLinear(textX, textY, textX+extents.Width, textY)
 	if gradPat, ok := pattern6.(cairo.LinearGradientPattern); ok {
-		gradPat.AddColorStopRGB(0, 1, 0.2, 0.2)     // 红
-		gradPat.AddColorStopRGB(0.25, 1, 0.6, 0.2)  // 橙
-		gradPat.AddColorStopRGB(0.5, 1, 1, 0.2)     // 黄
-		gradPat.AddColorStopRGB(0.75, 0.2, 1, 0.5)  // 绿
-		gradPat.AddColorStopRGB(1, 0.5, 0.5, 1)     // 紫
+		gradPat.AddColorStopRGB(0, 1, 0.2, 0.2)    // 红
+		gradPat.AddColorStopRGB(0.25, 1, 0.6, 0.2) // 橙
+		gradPat.AddColorStopRGB(0.5, 1, 1, 0.2)    // 黄
+		gradPat.AddColorStopRGB(0.75, 0.2, 1, 0.5) // 绿
+		gradPat.AddColorStopRGB(1, 0.5, 0.5, 1)    // 紫
 	}
 	ctx.SetSource(pattern6)
 	ctx.MoveTo(textX, textY)
