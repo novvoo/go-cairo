@@ -671,7 +671,6 @@ func (r *rasterContext) Clear(c color.Color) {
 	draw.Draw(r.img, r.img.Bounds(), &image.Uniform{c}, image.Point{}, draw.Src)
 }
 
-
 // getGradientColor calculates the color at a given point for the current gradient pattern
 func (r *rasterContext) getGradientColor(x, y float64) color.Color {
 	if r.gradientPattern == nil {
@@ -685,13 +684,10 @@ func (r *rasterContext) getGradientColor(x, y float64) color.Color {
 	}
 	ux, uy := MatrixTransformPoint(&invMatrix, x, y)
 
-	// Then apply pattern matrix (inverse) to get pattern space coordinates
+	// Then apply pattern matrix directly (from user space to pattern space)
+	// According to Cairo spec, pattern matrix is user-to-pattern transformation
 	patternMatrix := r.gradientPattern.GetMatrix()
-	invPatternMatrix := *patternMatrix
-	if MatrixInvert(&invPatternMatrix) != StatusSuccess {
-		return r.color
-	}
-	px, py := MatrixTransformPoint(&invPatternMatrix, ux, uy)
+	px, py := MatrixTransformPoint(patternMatrix, ux, uy)
 
 	switch pattern := r.gradientPattern.(type) {
 	case LinearGradientPattern:
@@ -706,12 +702,12 @@ func (r *rasterContext) getGradientColor(x, y float64) color.Color {
 // getLinearGradientColor calculates color for linear gradient
 func (r *rasterContext) getLinearGradientColor(pattern LinearGradientPattern, x, y float64) color.Color {
 	x0, y0, x1, y1 := pattern.GetLinearPoints()
-	
+
 	// Calculate projection of point onto gradient line
 	dx := x1 - x0
 	dy := y1 - y0
 	length := math.Sqrt(dx*dx + dy*dy)
-	
+
 	if length < 0.0001 {
 		// Degenerate gradient
 		if pattern.GetColorStopCount() > 0 {
@@ -725,18 +721,18 @@ func (r *rasterContext) getLinearGradientColor(pattern LinearGradientPattern, x,
 		}
 		return color.Black
 	}
-	
+
 	// Normalized direction vector
 	ndx := dx / length
 	ndy := dy / length
-	
+
 	// Project point onto gradient line
 	t := ((x-x0)*ndx + (y-y0)*ndy) / length
-	
+
 	// Handle extend modes
 	extend := pattern.GetExtend()
 	t = r.applyExtendMode(t, extend)
-	
+
 	// Interpolate color from stops
 	return r.interpolateColorStops(pattern, t)
 }
@@ -744,21 +740,21 @@ func (r *rasterContext) getLinearGradientColor(pattern LinearGradientPattern, x,
 // getRadialGradientColor calculates color for radial gradient
 func (r *rasterContext) getRadialGradientColor(pattern RadialGradientPattern, x, y float64) color.Color {
 	cx0, cy0, _, cx1, cy1, radius1 := pattern.GetRadialCircles()
-	
+
 	// Calculate distance from point to gradient centers
 	dx0 := x - cx0
 	dy0 := y - cy0
 	dist0 := math.Sqrt(dx0*dx0 + dy0*dy0)
-	
+
 	dx1 := x - cx1
 	dy1 := y - cy1
 	dist1 := math.Sqrt(dx1*dx1 + dy1*dy1)
-	
+
 	// Simple radial gradient: interpolate based on distance from outer circle
 	dcx := cx1 - cx0
 	dcy := cy1 - cy0
 	centerDist := math.Sqrt(dcx*dcx + dcy*dcy)
-	
+
 	var t float64
 	if centerDist < 0.0001 {
 		// Concentric circles
@@ -771,11 +767,11 @@ func (r *rasterContext) getRadialGradientColor(pattern RadialGradientPattern, x,
 			t = dist0 / radius1
 		}
 	}
-	
+
 	// Handle extend modes
 	extend := pattern.GetExtend()
 	t = r.applyExtendMode(t, extend)
-	
+
 	// Interpolate color from stops
 	return r.interpolateColorStops(pattern, t)
 }
@@ -820,7 +816,7 @@ func (r *rasterContext) interpolateColorStops(pattern GradientPattern, t float64
 	if stopCount == 0 {
 		return color.Black
 	}
-	
+
 	if stopCount == 1 {
 		_, r, g, b, a, _ := pattern.GetColorStop(0)
 		return color.NRGBA{
@@ -830,14 +826,14 @@ func (r *rasterContext) interpolateColorStops(pattern GradientPattern, t float64
 			A: uint8(a * 255),
 		}
 	}
-	
+
 	// Find the two stops to interpolate between
 	var stop1Offset, stop1R, stop1G, stop1B, stop1A float64
 	var stop2Offset, stop2R, stop2G, stop2B, stop2A float64
-	
+
 	// Get first stop
 	stop1Offset, stop1R, stop1G, stop1B, stop1A, _ = pattern.GetColorStop(0)
-	
+
 	// If t is before first stop, use first stop color
 	if t <= stop1Offset {
 		return color.NRGBA{
@@ -847,11 +843,11 @@ func (r *rasterContext) interpolateColorStops(pattern GradientPattern, t float64
 			A: uint8(stop1A * 255),
 		}
 	}
-	
+
 	// Find the stops to interpolate between
 	for i := 1; i < stopCount; i++ {
 		stop2Offset, stop2R, stop2G, stop2B, stop2A, _ = pattern.GetColorStop(i)
-		
+
 		if t <= stop2Offset {
 			// Interpolate between stop1 and stop2
 			if stop2Offset-stop1Offset < 0.0001 {
@@ -863,14 +859,14 @@ func (r *rasterContext) interpolateColorStops(pattern GradientPattern, t float64
 					A: uint8(stop2A * 255),
 				}
 			}
-			
+
 			// Linear interpolation
 			factor := (t - stop1Offset) / (stop2Offset - stop1Offset)
 			r := stop1R + (stop2R-stop1R)*factor
 			g := stop1G + (stop2G-stop1G)*factor
 			b := stop1B + (stop2B-stop1B)*factor
 			a := stop1A + (stop2A-stop1A)*factor
-			
+
 			return color.NRGBA{
 				R: uint8(math.Min(math.Max(r*255, 0), 255)),
 				G: uint8(math.Min(math.Max(g*255, 0), 255)),
@@ -878,11 +874,11 @@ func (r *rasterContext) interpolateColorStops(pattern GradientPattern, t float64
 				A: uint8(math.Min(math.Max(a*255, 0), 255)),
 			}
 		}
-		
+
 		// Move to next stop
 		stop1Offset, stop1R, stop1G, stop1B, stop1A = stop2Offset, stop2R, stop2G, stop2B, stop2A
 	}
-	
+
 	// If t is after last stop, use last stop color
 	return color.NRGBA{
 		R: uint8(stop2R * 255),

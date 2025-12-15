@@ -375,7 +375,7 @@ func (c *context) SetSourceRGBA(red, green, blue, alpha float64) {
 func (c *context) SetSourceSurface(surface Surface, x, y float64) {
 	pattern := NewPatternForSurface(surface)
 	matrix := NewMatrix()
-	matrix.InitTranslate(-x, -y)
+	matrix.InitTranslate(x, y) // 从用户空间到 pattern 空间的变换（正值）
 	pattern.SetMatrix(matrix)
 	c.SetSource(pattern)
 	pattern.Destroy()
@@ -777,7 +777,7 @@ func (c *context) applyStateToPango() {
 		}
 		return
 	}
-	
+
 	if pattern, ok := c.gstate.source.(*radialGradient); ok {
 		// Set gradient pattern for raster context
 		c.gc.SetGradientPattern(pattern)
@@ -793,7 +793,7 @@ func (c *context) applyStateToPango() {
 		}
 		return
 	}
-	
+
 	switch pattern := c.gstate.source.(type) {
 	case SolidPattern:
 		r, g, b, a := pattern.GetRGBA()
