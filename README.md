@@ -261,6 +261,37 @@ cd test
 go run modules_demo.go
 ```
 
+输出示例：
+```
+测试 Pixman 图像后端...
+✓ Pixman 图像操作完成
+
+测试 Porter-Duff 混合模式...
+✓ 混合模式 1 完成
+✓ 混合模式 2 完成
+✓ 混合模式 3 完成
+✓ 混合模式 4 完成
+
+测试颜色空间转换...
+RGB(0.80, 0.30, 0.50) -> HSL(0.93, 0.45, 0.55) -> RGB(0.80, 0.30, 0.50)
+✓ HSL 色轮绘制完成
+
+测试高级光栅化器...
+✓ 贝塞尔曲线光栅化完成
+
+测试图像后端...
+✓ 图像后端操作完成
+
+✓ 图像已保存到 modules_demo.png
+
+=== Go-Cairo 模块状态 ===
+✓ Pixman (图像后端)
+✓ Rasterizer (光栅化器)
+✓ Alpha Blend (Porter-Duff 混合)
+✓ Colorspace (颜色空间转换)
+========================
+```
+
 ### 渐变效果
 
 **gradient.go** - 基础渐变效果演示：
@@ -311,6 +342,24 @@ go run chinese_gradient.go
 ![字形碰撞](test/glyph_collision.png)
 
 **glyph_outline_debug.go** - 字形轮廓调试工具，输出字形的详细信息
+
+### 位图平滑处理
+
+**smooth_demo.go** - 位图平滑效果对比演示：
+- 双线性插值平滑
+- 高斯模糊平滑
+- 中值滤波平滑
+- 边缘细节放大对比
+
+![平滑对比](test/smooth_comparison.png)
+
+运行方式：
+```bash
+cd test
+go run smooth_demo.go
+```
+
+详细文档请参考：[位图平滑文档](docs/SMOOTH.md)
 
 ### OpenType 特性测试
 

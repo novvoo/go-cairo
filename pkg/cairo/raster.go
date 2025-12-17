@@ -28,6 +28,9 @@ type rasterContext struct {
 
 	// Gradient pattern (if set)
 	gradientPattern Pattern
+
+	// Surface pattern (if set)
+	surfacePattern SurfacePattern
 }
 
 type pathPoint struct {
@@ -145,6 +148,15 @@ func (r *rasterContext) SetFontSize(size float64) {
 // SetGradientPattern sets a gradient pattern for filling
 func (r *rasterContext) SetGradientPattern(pattern Pattern) {
 	r.gradientPattern = pattern
+}
+
+// SetSurfacePattern sets a surface pattern for filling
+func (r *rasterContext) SetSurfacePattern(pattern SurfacePattern) {
+	r.surfacePattern = pattern
+	// Clear gradient pattern only when surface pattern is actually set (not nil)
+	if pattern != nil {
+		r.gradientPattern = nil
+	}
 }
 
 // Stroke strokes the current path
@@ -307,8 +319,10 @@ func (r *rasterContext) Fill() {
 	const samples = 4
 	const invSamples = 1.0 / (samples * samples)
 
+	pixelCount := 0
 	for y := y1; y < y2; y++ {
 		for x := x1; x < x2; x++ {
+			pixelCount++
 			// Count how many subpixel samples are inside the path
 			coverage := 0
 			for sy := 0; sy < samples; sy++ {
@@ -325,9 +339,11 @@ func (r *rasterContext) Fill() {
 			// Apply antialiasing based on coverage
 			if coverage > 0 {
 				alpha := float64(coverage) * invSamples
-				// Use gradient color if pattern is set, otherwise use solid color
+				// Use surface pattern, gradient, or solid color
 				pixelColor := r.color
-				if r.gradientPattern != nil {
+				if r.surfacePattern != nil {
+					pixelColor = r.getSurfacePatternColor(float64(x), float64(y))
+				} else if r.gradientPattern != nil {
 					pixelColor = r.getGradientColor(float64(x), float64(y))
 				}
 				r.blendPixel(x, y, pixelColor, alpha)
@@ -886,4 +902,102 @@ func (r *rasterContext) interpolateColorStops(pattern GradientPattern, t float64
 		B: uint8(stop2B * 255),
 		A: uint8(stop2A * 255),
 	}
+}
+
+// getSurfacePatternColor gets the color from a surface pattern at the given point
+func (r *rasterContext) getSurfacePatternColor(x, y float64) color.Color {
+	if r.surfacePattern == nil {
+		return r.color
+	}
+
+	// Transform from device space to user space
+	invMatrix := r.matrix
+	if MatrixInvert(&invMatrix) != StatusSuccess {
+		return r.color
+	}
+	ux, uy := MatrixTransformPoint(&invMatrix, x, y)
+
+	// Apply pattern matrix (user space to pattern space)
+	patternMatrix := r.surfacePattern.GetMatrix()
+	px, py := MatrixTransformPoint(patternMatrix, ux, uy)
+
+	// Get the surface from the pattern
+	surface := r.surfacePattern.GetSurface()
+	if surface == nil {
+		return r.color
+	}
+
+	// Get the image from the surface
+	imgSurface, ok := surface.(ImageSurface)
+	if !ok {
+		return r.color
+	}
+
+	goImg := imgSurface.GetGoImage()
+	if goImg == nil {
+		return r.color
+	}
+
+	bounds := goImg.Bounds()
+
+	// Convert to integer coordinates
+	ix := int(math.Floor(px))
+	iy := int(math.Floor(py))
+
+	// Handle extend modes
+	extend := r.surfacePattern.GetExtend()
+	switch extend {
+	case ExtendRepeat:
+		// Wrap coordinates
+		if bounds.Dx() > 0 {
+			ix = ((ix % bounds.Dx()) + bounds.Dx()) % bounds.Dx()
+		}
+		if bounds.Dy() > 0 {
+			iy = ((iy % bounds.Dy()) + bounds.Dy()) % bounds.Dy()
+		}
+	case ExtendReflect:
+		// Mirror coordinates
+		if bounds.Dx() > 0 {
+			period := bounds.Dx() * 2
+			ix = ix % period
+			if ix < 0 {
+				ix += period
+			}
+			if ix >= bounds.Dx() {
+				ix = period - ix - 1
+			}
+		}
+		if bounds.Dy() > 0 {
+			period := bounds.Dy() * 2
+			iy = iy % period
+			if iy < 0 {
+				iy += period
+			}
+			if iy >= bounds.Dy() {
+				iy = period - iy - 1
+			}
+		}
+	case ExtendPad:
+		// Clamp to edges
+		if ix < bounds.Min.X {
+			ix = bounds.Min.X
+		}
+		if ix >= bounds.Max.X {
+			ix = bounds.Max.X - 1
+		}
+		if iy < bounds.Min.Y {
+			iy = bounds.Min.Y
+		}
+		if iy >= bounds.Max.Y {
+			iy = bounds.Max.Y - 1
+		}
+	default: // ExtendNone
+		// Return transparent for out-of-bounds
+		if ix < bounds.Min.X || ix >= bounds.Max.X || iy < bounds.Min.Y || iy >= bounds.Max.Y {
+			return color.NRGBA{R: 0, G: 0, B: 0, A: 0}
+		}
+	}
+
+	// Get the color at the calculated position
+	return goImg.At(ix, iy)
 }

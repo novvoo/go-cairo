@@ -375,7 +375,11 @@ func (c *context) SetSourceRGBA(red, green, blue, alpha float64) {
 func (c *context) SetSourceSurface(surface Surface, x, y float64) {
 	pattern := NewPatternForSurface(surface)
 	matrix := NewMatrix()
-	matrix.InitTranslate(x, y) // 从用户空间到 pattern 空间的变换（正值）
+	// Pattern 矩阵是从用户空间到 pattern 空间的变换
+	// 要让 pattern 在用户空间的 (x, y) 位置显示，需要将用户坐标向后偏移
+	// 即：用户坐标 (x, y) 应该对应 pattern 坐标 (0, 0)
+	// 所以矩阵变换是：pattern_coord = user_coord - (x, y)
+	matrix.InitTranslate(-x, -y)
 	pattern.SetMatrix(matrix)
 	c.SetSource(pattern)
 	pattern.Destroy()
@@ -765,6 +769,8 @@ func (c *context) applyStateToPango() {
 	if pattern, ok := c.gstate.source.(*linearGradient); ok {
 		// Set gradient pattern for raster context
 		c.gc.SetGradientPattern(pattern)
+		// Clear surface pattern when using gradient
+		c.gc.SetSurfacePattern(nil)
 		// Use middle color as fallback for stroke
 		if pattern.GetColorStopCount() > 0 {
 			_, r, g, b, a, _ := pattern.GetColorStop(0)
@@ -781,6 +787,8 @@ func (c *context) applyStateToPango() {
 	if pattern, ok := c.gstate.source.(*radialGradient); ok {
 		// Set gradient pattern for raster context
 		c.gc.SetGradientPattern(pattern)
+		// Clear surface pattern when using gradient
+		c.gc.SetSurfacePattern(nil)
 		// Use middle color as fallback for stroke
 		if pattern.GetColorStopCount() > 0 {
 			_, r, g, b, a, _ := pattern.GetColorStop(0)
@@ -791,6 +799,13 @@ func (c *context) applyStateToPango() {
 				A: uint8(a * 255),
 			})
 		}
+		return
+	}
+
+	// Check for surface pattern (concrete type)
+	if pattern, ok := c.gstate.source.(*surfacePattern); ok {
+		// Set the surface pattern for the raster context
+		c.gc.SetSurfacePattern(pattern)
 		return
 	}
 
@@ -808,13 +823,11 @@ func (c *context) applyStateToPango() {
 		c.gc.SetFillColor(blendedColor)
 		c.gc.SetStrokeColor(blendedColor)
 
+		// Clear surface pattern when using solid color
+		c.gc.SetSurfacePattern(nil)
+
 		fontSize := math.Hypot(c.gstate.fontMatrix.XX, c.gstate.fontMatrix.YX)
 		c.gc.SetFontSize(fontSize)
-	case SurfacePattern:
-		// Surface patterns are complex and not fully supported
-		// For now, use a solid color approximation
-		c.gc.SetFillColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
-		c.gc.SetStrokeColor(color.NRGBA{R: 128, G: 128, B: 128, A: 255})
 	}
 }
 
@@ -895,19 +908,31 @@ func (c *context) Paint() error {
 	c.applyStateToPango()
 
 	// Cairo's paint is equivalent to filling the current clip region with the source pattern.
-	// Since clipping is not fully implemented, we'll fill the entire surface.
-	// We need to get the surface dimensions.
-	if imgSurface, ok := c.target.(ImageSurface); ok {
-		width := float64(imgSurface.GetWidth())
-		height := float64(imgSurface.GetHeight())
+	// If there's a clip region, use it; otherwise fill the entire surface.
 
-		c.gc.BeginPath()
-		c.gc.MoveTo(0, 0)
-		c.gc.LineTo(width, 0)
-		c.gc.LineTo(width, height)
-		c.gc.LineTo(0, height)
-		c.gc.Close()
+	if c.gstate.clip != nil && c.gstate.clip.path != nil {
+		// Use the clip path
+		fmt.Printf("[Paint] Using clip path, data length: %d\n", len(c.gstate.clip.path.data))
+		savedPath := c.path
+		c.path = c.gstate.clip.path
+		c.applyPathToPango()
 		c.gc.Fill()
+		c.path = savedPath
+	} else {
+		fmt.Println("[Paint] No clip path, filling entire surface")
+		// Fill the entire surface
+		if imgSurface, ok := c.target.(ImageSurface); ok {
+			width := float64(imgSurface.GetWidth())
+			height := float64(imgSurface.GetHeight())
+
+			c.gc.BeginPath()
+			c.gc.MoveTo(0, 0)
+			c.gc.LineTo(width, 0)
+			c.gc.LineTo(width, height)
+			c.gc.LineTo(0, height)
+			c.gc.Close()
+			c.gc.Fill()
+		}
 	}
 	return nil
 }
@@ -1170,6 +1195,7 @@ func (c *context) Rectangle(x, y, width, height float64) {
 	c.LineTo(x+width, y+height)
 	c.LineTo(x, y+height)
 	c.ClosePath()
+	fmt.Printf("[Rectangle] Added rectangle, path.data length: %d\n", len(c.path.data))
 }
 
 // DrawCircle adds a circular path to the current path.
@@ -1195,9 +1221,22 @@ func (c *context) Clip() {
 		return
 	}
 
-	// Set the current path as the new clip path
+	fmt.Printf("[Clip] Before copy, c.path.data length: %d\n", len(c.path.data))
+
+	// Copy the current path for the clip region
+	// We need to copy the path data, not just the reference
+	clipPath := &path{
+		data:          make([]pathOp, len(c.path.data)),
+		subpathStartX: c.path.subpathStartX,
+		subpathStartY: c.path.subpathStartY,
+	}
+	copy(clipPath.data, c.path.data)
+
+	fmt.Printf("[Clip] After copy, clipPath.data length: %d\n", len(clipPath.data))
+
+	// Set the copied path as the new clip path
 	c.gstate.clip = &clipRegion{
-		path:      c.path,
+		path:      clipPath,
 		fillRule:  c.gstate.fillRule,
 		tolerance: c.gstate.tolerance,
 		antialias: c.gstate.antialias,

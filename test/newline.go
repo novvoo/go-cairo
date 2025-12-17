@@ -8,12 +8,14 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/novvoo/go-cairo/pkg/cairo"
 )
 
 func main() {
-	fmt.Println("=== 换行符测试 ===\n")
+	fmt.Println("=== 换行符测试 ===")
+	fmt.Println("测试不同操作系统的换行符处理")
 
 	// 创建画布
 	width, height := 600, 400
@@ -30,12 +32,17 @@ func main() {
 	// 黑色文字
 	ctx.SetSourceRGB(0.0, 0.0, 0.0)
 
-	// 创建字体
-	layout := ctx.PangoCairoCreateLayout().(*cairo.PangoCairoLayout)
-	fontDesc := cairo.NewPangoFontDescription()
-	fontDesc.SetFamily("sans-serif")
-	fontDesc.SetSize(24.0)
-	layout.SetFontDescription(fontDesc)
+	// 创建标题字体
+	titleLayout := ctx.PangoCairoCreateLayout().(*cairo.PangoCairoLayout)
+	titleFontDesc := cairo.NewPangoFontDescription()
+	titleFontDesc.SetFamily("sans-serif")
+	titleFontDesc.SetSize(16.0)
+	titleLayout.SetFontDescription(titleFontDesc)
+
+	// 创建内容字体
+	contentFontDesc := cairo.NewPangoFontDescription()
+	contentFontDesc.SetFamily("sans-serif")
+	contentFontDesc.SetSize(20.0)
 
 	// 测试不同的换行符
 	testCases := []struct {
@@ -64,14 +71,23 @@ func main() {
 		fmt.Printf("测试: %s\n", tc.name)
 		fmt.Printf("文本: %q\n", tc.text)
 
-		// 设置位置
+		// 渲染标题
+		ctx.MoveTo(50.0, tc.y-25.0)
+		titleLayout.SetText(tc.name)
+		ctx.PangoCairoShowText(titleLayout)
+
+		// 为每个测试用例创建新的 layout
+		contentLayout := ctx.PangoCairoCreateLayout().(*cairo.PangoCairoLayout)
+		contentLayout.SetFontDescription(contentFontDesc)
+
+		// 标准化换行符：将 \r\n 和 \r 都转换为 \n
+		normalizedText := strings.ReplaceAll(tc.text, "\r\n", "\n")
+		normalizedText = strings.ReplaceAll(normalizedText, "\r", "\n")
+
+		// 设置位置并渲染内容
 		ctx.MoveTo(50.0, tc.y)
-
-		// 设置文本
-		layout.SetText(tc.text)
-
-		// 渲染文本
-		ctx.PangoCairoShowText(layout)
+		contentLayout.SetText(normalizedText)
+		ctx.PangoCairoShowText(contentLayout)
 
 		fmt.Printf("渲染完成\n\n")
 	}

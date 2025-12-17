@@ -1547,17 +1547,67 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 	sf := NewPangoCairoScaledFont(fontFace, fontMatrix, ctm, nil)
 	defer sf.Destroy()
 
-	// Perform text shaping to get glyphs
-	glyphs, _, _, status := sf.TextToGlyphs(x, y, layout.GetText())
-	if status != StatusSuccess {
-		ctx.(*context).status = status
-		return
+	// Get font metrics for line spacing
+	fontExtents := sf.Extents()
+	lineHeight := fontExtents.Height
+	if layout.lineSpacing > 0 {
+		lineHeight = layout.lineSpacing
+	} else if layout.spacing > 0 {
+		lineHeight += layout.spacing
 	}
+
+	// If lineHeight is still 0 or too small, use font size as fallback
+	if lineHeight < layout.fontDesc.size*0.5 {
+		lineHeight = layout.fontDesc.size * 1.2 // 120% of font size
+	}
+
+	// Split text into lines
+	text := layout.GetText()
+	lines := strings.Split(text, "\n")
+
+	// Render each line
+	currentY := y
+	for _, line := range lines {
+		// Skip empty lines but still advance Y position
+		if line == "" {
+			currentY += lineHeight
+			continue
+		}
+
+		// Perform text shaping to get glyphs for this line
+		glyphs, _, _, status := sf.TextToGlyphs(x, currentY, line)
+		if status != StatusSuccess {
+			ctx.(*context).status = status
+			return
+		}
+
+		// Render this line's glyphs
+		renderLineGlyphs(ctx, sf, glyphs, layout, x, line)
+
+		// Move to next line
+		currentY += lineHeight
+	}
+
+	// Update current point to the position after the last line
+	if len(lines) > 0 {
+		lastLine := lines[len(lines)-1]
+		if lastLine != "" {
+			extents := sf.TextExtents(lastLine)
+			c := ctx.(*context)
+			c.currentPoint.x = x + extents.XAdvance
+			c.currentPoint.y = currentY - lineHeight + extents.YAdvance
+			c.currentPoint.hasPoint = true
+		}
+	}
+}
+
+// renderLineGlyphs renders glyphs for a single line of text
+func renderLineGlyphs(ctx Context, sf *PangoCairoScaledFont, glyphs []Glyph, layout *PangoCairoLayout, x float64, lineText string) {
 
 	// Apply alignment adjustments
 	if layout.align != PangoAlignLeft && layout.width > 0 {
-		// Calculate text width
-		textExtents := sf.TextExtents(layout.GetText())
+		// Calculate text width for this line
+		textExtents := sf.TextExtents(lineText)
 		layoutWidth := float64(layout.width) / 1024.0 // Convert from Pango units
 
 		var offsetX float64
@@ -1585,6 +1635,9 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 		return
 	}
 
+	// Apply state once before rendering all glyphs to ensure gradient is set
+	c.applyStateToPango()
+
 	// Render each glyph directly to the surface
 	for _, glyph := range glyphs {
 		// Save context state before rendering each glyph
@@ -1593,13 +1646,11 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 		// Get the glyph path
 		glyphPath, err := sf.GlyphPath(glyph.Index)
 		if err != nil || glyphPath == nil {
-			fmt.Printf("[DEBUG] Skipping glyph %d: path error=%v, path==nil=%v\n", glyph.Index, err, glyphPath == nil)
 			c.Restore()
 			continue
 		}
 
 		if len(glyphPath.Data) == 0 {
-			fmt.Printf("[DEBUG] Skipping glyph %d: empty path\n", glyph.Index)
 			c.Restore()
 			continue
 		}
@@ -1637,21 +1688,14 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 			}
 		}
 
-		fmt.Printf("[DEBUG] Glyph %d at (%.2f, %.2f): added %d path segments\n", glyph.Index, glyph.X, glyph.Y, pathSegments)
+		// Debug: print glyph info (commented out for production)
+		// fmt.Printf("[DEBUG] Glyph %d at (%.2f, %.2f): added %d path segments\n", glyph.Index, glyph.X, glyph.Y, pathSegments)
 
 		// Fill the glyph
 		c.Fill()
 
 		// Restore context state after rendering each glyph
 		c.Restore()
-	}
-
-	// Update current point to the position after the last glyph
-	if len(glyphs) > 0 {
-		extents := sf.TextExtents(layout.GetText())
-		c.currentPoint.x = x + extents.XAdvance
-		c.currentPoint.y = y + extents.YAdvance
-		c.currentPoint.hasPoint = true
 	}
 }
 

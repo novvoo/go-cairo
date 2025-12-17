@@ -373,6 +373,11 @@ func (p *surfacePattern) GetSurface() Surface {
 	return p.surface.Reference()
 }
 
+func (p *surfacePattern) Reference() Pattern {
+	atomic.AddInt32(&p.refCount, 1)
+	return p
+}
+
 // (deleted unused getPattern)
 
 // (deleted unused cleanup)
