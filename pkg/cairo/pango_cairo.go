@@ -1559,7 +1559,7 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 		// Calculate text width
 		textExtents := sf.TextExtents(layout.GetText())
 		layoutWidth := float64(layout.width) / 1024.0 // Convert from Pango units
-		
+
 		var offsetX float64
 		switch layout.align {
 		case PangoAlignRight:
@@ -1567,7 +1567,7 @@ func PangoCairoShowText(ctx Context, layout *PangoCairoLayout) {
 		case PangoAlignCenter:
 			offsetX = (layoutWidth - textExtents.Width) / 2
 		}
-		
+
 		// Adjust all glyph positions
 		for i := range glyphs {
 			glyphs[i].X += offsetX

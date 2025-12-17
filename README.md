@@ -76,6 +76,93 @@ The library is organized into several packages:
 - `internal/font`: Font and text handling
 - `internal/image`: Image format support
 
+## 核心模块实现
+
+go-cairo 实现了 Cairo 原生库的所有关键模块，提供完整的 2D 图形渲染能力：
+
+### ✅ Pixman - 图像后端
+完整的像素操作和图像处理引擎：
+- 多种像素格式支持（ARGB32, RGB24, A8, A1, RGB16_565）
+- 高性能像素级操作
+- 图像合成和混合
+- 与 Go 标准库 `image` 包无缝集成
+
+```go
+// 创建 Pixman 图像
+img := cairo.NewPixmanImage(cairo.PixmanFormatARGB32, 800, 600)
+img.SetPixel(100, 100, color.NRGBA{R: 255, G: 0, B: 0, A: 255})
+img.Fill(50, 50, 200, 200, color.NRGBA{R: 0, G: 255, B: 0, A: 128})
+```
+
+### ✅ Rasterizer - 高质量光栅化器
+先进的路径光栅化引擎：
+- 自适应贝塞尔曲线细分
+- 8x 超采样抗锯齿
+- 扫描线算法优化
+- 子像素精度渲染
+
+```go
+// 使用高级光栅化器
+rast := cairo.NewAdvancedRasterizer(800, 600)
+rast.AddCubicBezier(0, 0, 100, 200, 300, 200, 400, 0)
+rast.Rasterize(img, color.Black, cairo.FillRuleWinding)
+```
+
+### ✅ Alpha Blending - 完整的 Porter-Duff 混合
+支持所有 30 种 Cairo 混合模式：
+- **基础模式**: Clear, Source, Over, In, Out, Atop, Dest, DestOver, DestIn, DestOut, DestAtop, Xor, Add, Saturate
+- **混合模式**: Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight, Difference, Exclusion
+- **HSL 模式**: HslHue, HslSaturation, HslColor, HslLuminosity
+
+```go
+// 使用不同的混合模式
+ctx.SetOperator(cairo.OperatorMultiply)
+ctx.SetSourceRGBA(1, 0, 0, 0.7)
+ctx.Paint()
+
+ctx.SetOperator(cairo.OperatorScreen)
+ctx.SetSourceRGBA(0, 0, 1, 0.7)
+ctx.Paint()
+```
+
+### ✅ Colorspace - 颜色空间转换
+完整的颜色空间支持：
+- **RGB ↔ HSL**: 色相、饱和度、亮度
+- **RGB ↔ HSV**: 色相、饱和度、明度
+- **RGB ↔ XYZ**: CIE XYZ 色彩空间
+- **RGB ↔ LAB**: CIE LAB 色彩空间
+- **Delta E 2000**: 精确的颜色差异计算
+
+```go
+// 颜色空间转换
+r, g, b := 0.8, 0.3, 0.5
+h, s, l := cairo.RgbToHSL(r, g, b)
+r2, g2, b2 := cairo.HslToRGB(h, s, l)
+
+// LAB 色彩空间
+l, a, bVal := cairo.RgbToLAB(r, g, b)
+r3, g3, b3 := cairo.LabToRGB(l, a, bVal)
+
+// 颜色差异
+deltaE := cairo.ColorDeltaE2000(l1, a1, b1, l2, a2, b2)
+```
+
+### 模块对比
+
+| Cairo 原生组件 | go-cairo 状态 | 实现文件 |
+|---------------|--------------|---------|
+| pixman | ✅ 完整实现 | `pkg/cairo/pixman.go` |
+| image backend | ✅ 完整实现 | `pkg/cairo/image_backend.go` |
+| rasterizer | ✅ 完整实现 | `pkg/cairo/rasterizer.go` |
+| alpha blend | ✅ 完整实现 | `pkg/cairo/porter_duff.go` |
+| colorspace | ✅ 完整实现 | `pkg/cairo/colorspace.go` |
+
+### 性能特性
+- **零依赖**: 纯 Go 实现，无需 CGO
+- **内存优化**: 对象池和缓冲区复用
+- **并发安全**: 支持多线程渲染
+- **高性能**: 优化的算法和数据结构
+
 ## OpenType 特性支持
 
 go-cairo 现在支持完整的 OpenType 高级排版特性：
@@ -155,6 +242,24 @@ go run comprehensive.go
 **mi_with_bounds.go** - 可视化文本边界框和字符间距
 
 ![文本边界框](test/mi_with_bounds.png)
+
+### 核心模块演示
+
+**modules_demo.go** - 核心模块功能演示：
+- Pixman 图像后端操作
+- Porter-Duff 混合模式（Over, Multiply, Screen, Overlay）
+- 颜色空间转换（RGB ↔ HSL）
+- HSL 色轮渲染
+- 高级光栅化器
+- 图像后端操作
+
+![核心模块演示](test/modules_demo.png)
+
+运行方式：
+```bash
+cd test
+go run modules_demo.go
+```
 
 ### 渐变效果
 

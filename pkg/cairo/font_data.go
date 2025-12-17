@@ -41,14 +41,20 @@ var embeddedFonts = map[string][]byte{
 }
 
 // Fallback fonts for better Unicode support (especially CJK characters)
-// Priority order: CJK fonts first, then Latin fonts
+// Priority order: Local assets first for Latin text, then CJK fonts for better Unicode support
 var fallbackFontPaths = []string{
+	// Local assets - prioritize for Latin text (proportional fonts)
+	// Try both relative to current directory and parent directory
+	"assets/DejaVuSans.ttf",
+	"../assets/DejaVuSans.ttf",
+	"resource/font/luxisr.ttf",
+	"../resource/font/luxisr.ttf",
 	// macOS system fonts for CJK support
-	"/System/Library/Fonts/PingFang.ttc",                    // PingFang SC (Simplified Chinese)
-	"/System/Library/Fonts/Hiragino Sans GB.ttc",            // Hiragino Sans GB
-	"/System/Library/Fonts/STHeiti Light.ttc",               // STHeiti
-	"/System/Library/Fonts/Supplemental/Songti.ttc",         // Songti SC
-	"/System/Library/Fonts/Supplemental/Arial Unicode.ttf",  // Arial Unicode MS
+	"/System/Library/Fonts/PingFang.ttc",                   // PingFang SC (Simplified Chinese)
+	"/System/Library/Fonts/Hiragino Sans GB.ttc",           // Hiragino Sans GB
+	"/System/Library/Fonts/STHeiti Light.ttc",              // STHeiti
+	"/System/Library/Fonts/Supplemental/Songti.ttc",        // Songti SC
+	"/System/Library/Fonts/Supplemental/Arial Unicode.ttf", // Arial Unicode MS
 	// Windows system fonts for CJK support
 	"C:/Windows/Fonts/msyh.ttc",   // Microsoft YaHei (Simplified Chinese)
 	"C:/Windows/Fonts/msyhbd.ttc", // Microsoft YaHei Bold
@@ -59,9 +65,6 @@ var fallbackFontPaths = []string{
 	"/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
 	"/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
 	"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-	// Local assets
-	"assets/DejaVuSans.ttf",
-	"resource/font/luxisr.ttf",
 }
 
 // LoadFontFromFile loads a font from a file path
@@ -116,6 +119,8 @@ func LoadEmbeddedFont(name string) (font.Face, []byte, error) {
 				fontCache[name] = face
 				fontDataCache[name] = fontData
 				fontCacheMu.Unlock()
+				// Debug: print which font was loaded (commented out for production)
+				// fmt.Printf("[DEBUG LoadEmbeddedFont] Loaded fallback font: %s\n", fallbackPath)
 				return face, fontData, nil
 			}
 		}
