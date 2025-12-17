@@ -351,7 +351,7 @@ go run chinese_gradient.go
 - 中值滤波平滑
 - 边缘细节放大对比
 
-![平滑对比](test/smooth_comparison.png)
+![平滑对比](test/smooth_demo.png)
 
 运行方式：
 ```bash
