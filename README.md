@@ -206,7 +206,7 @@ for _, text := range texts {
 **sudoku.go** - 数独
 - 基础图形绘制
 
-![数独效果](test/sudoku.png)
+![数独效果](example/sudoku.png)
 
 **comprehensive.go** - 完整的功能演示，包括：
 - 基础图形绘制（矩形、圆形、线条）
@@ -214,11 +214,11 @@ for _, text := range texts {
 - 贝塞尔曲线
 - 坐标变换
 
-![综合测试效果](test/comprehensive_test.png)
+![综合测试效果](example/comprehensive_test.png)
 
 运行方式：
 ```bash
-cd test
+cd example
 go run comprehensive.go
 ```
 
@@ -226,7 +226,7 @@ go run comprehensive.go
 
 **circle_comparison.go** - 对比 `Arc` 和 `DrawCircle` 两种绘制圆形的方法
 
-![圆形对比](test/circle_comparison.png)
+![圆形对比](example/circle_comparison.png)
 
 ### PangoCairo 文本渲染
 
@@ -235,13 +235,13 @@ go run comprehensive.go
 - 文本度量和定位
 - 字形分析
 
-![PangoCairo 示例](test/pangocairo.png)
+![PangoCairo 示例](example/pangocairo.png)
 
 ### 文本边界框分析
 
 **mi_with_bounds.go** - 可视化文本边界框和字符间距
 
-![文本边界框](test/mi_with_bounds.png)
+![文本边界框](example/mi_with_bounds.png)
 
 ### 核心模块演示
 
@@ -253,11 +253,11 @@ go run comprehensive.go
 - 高级光栅化器
 - 图像后端操作
 
-![核心模块演示](test/modules_demo.png)
+![核心模块演示](example/modules_demo.png)
 
 运行方式：
 ```bash
-cd test
+cd example
 go run modules_demo.go
 ```
 
@@ -299,47 +299,47 @@ RGB(0.80, 0.30, 0.50) -> HSL(0.93, 0.45, 0.55) -> RGB(0.80, 0.30, 0.50)
 - 径向渐变
 - 多色渐变
 
-![渐变效果](test/gradient_test.png)
+![渐变效果](example/gradient_test.png)
 
 **gradient_advanced.go** - 高级渐变效果：
 - 复杂渐变模式
 - 渐变变换
 - 多重渐变组合
 
-![高级渐变](test/gradient_advanced_test.png)
+![高级渐变](example/gradient_advanced_test.png)
 
 **chinese_gradient.go** - 中文文本渐变效果
 
-![中文渐变](test/chinese_gradient_test.png)
+![中文渐变](example/chinese_gradient_test.png)
 
 运行方式：
 ```bash
-cd test
+cd example
 go run gradient.go
 go run gradient_advanced.go
 go run chinese_gradient.go
 ```
 
-详细文档请参考：[渐变效果文档](test/README_GRADIENT.md)
+详细文档请参考：[渐变效果文档](example/README_GRADIENT.md)
 
 ### 中文文本渲染
 
 **chinese_text.go** - 中文文本渲染演示
 
-![中文文本](test/chinese_text_test.png)
+![中文文本](example/chinese_text_test.png)
 
 ### 换行处理
 
 **newline.go** - 文本换行和多行文本处理
 
-![换行测试](test/newline_test.png)
+![换行测试](example/newline_test.png)
 
 ### 字形分析工具
 
 **glyph_analysis.go** - 字形渲染和碰撞检测分析
 
-![字形分析](test/glyph_simple.png)
-![字形碰撞](test/glyph_collision.png)
+![字形分析](example/glyph_simple.png)
+![字形碰撞](example/glyph_collision.png)
 
 **glyph_outline_debug.go** - 字形轮廓调试工具，输出字形的详细信息
 
@@ -351,11 +351,11 @@ go run chinese_gradient.go
 - 中值滤波平滑
 - 边缘细节放大对比
 
-![平滑对比](test/smooth_demo.png)
+![平滑对比](example/smooth_demo.png)
 
 运行方式：
 ```bash
-cd test
+cd example
 go run smooth_demo.go
 ```
 
@@ -372,18 +372,18 @@ go run smooth_demo.go
 - 复杂文字系统检测
 - 语言和文字系统检测
 
-![OpenType 特性](test/opentype_features_test.png)
+![OpenType 特性](example/opentype_features_test.png)
 
 **multilingual_text.go** - 多语言文本渲染演示：
 - 10+ 种语言的自动检测和渲染
 - LTR/RTL 自动处理
 - 复杂文字系统支持
 
-![多语言文本](test/multilingual_text.png)
+![多语言文本](example/multilingual_text.png)
 
 运行方式：
 ```bash
-cd test
+cd example
 go run opentype_features_test.go
 go run multilingual_text.go
 ```
